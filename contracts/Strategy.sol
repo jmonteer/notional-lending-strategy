@@ -20,6 +20,10 @@ import {
     Address
 } from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
+import {
+    BalanceActionWithTrades
+} from "../interfaces/notional/Types.sol";
+
 // Import interfaces for many popular DeFi projects, or add your own!
 //import "../interfaces/<protocol>/<Interface>.sol";
 
@@ -30,6 +34,7 @@ contract Strategy is BaseStrategy {
 
     NotionalProxy public immutable nProxy;
     uint16 private immutable currencyID; 
+    uint16 public minAmountWant;
 
     constructor(address _vault, NotionalProxy _nProxy) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
@@ -96,26 +101,29 @@ contract Strategy is BaseStrategy {
             return;
         }
         availableWantBalance = availableWantBalance.sub(_debtOutstanding);
-        if(availableWantBalance < minAmountWant) {
+        if(availableWantBalance < minAmountWant) {
             return;
         }
 
+        // TODO: getActiveMarketIndex for every 
+        MarketParameters[] memory marketParameters = nProxy.getActiveMarkets(currencyID);
+        uint256 marketIndex = 1;
 
-        // TODO: research how to pass this as calldata
-        BalanceActionsWithTrades[] memory actions = new BalanceActionsWithTrades[](1);
+        BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
         
         // TODO: term (initially always shortest one)
         // TODO: calculate marketIndex taking into account currency and term
-        bytes32 trade = getTradeFrom(marketIndex, availableWantBalance);
+        bytes32[] memory trades;
+        trades[0] = getTradeFrom(marketIndex, availableWantBalance);
 
-        actions[0] = BalanceActionsWithTrades(
+        actions[0] = BalanceActionWithTrades(
             DepositActionType.DepositUnderlying,
             currencyID,
             availableWantBalance,
             0, // TODO: review this
             true, // TODO: review this
             true, // TODO: review this
-            trade);
+            trades);
 
         // TODO: check return value
         nProxy.batchBalanceAndTradeAction(address(this), actions);
@@ -211,7 +219,7 @@ contract Strategy is BaseStrategy {
     // INTERNAL FUNCTIONS
 
     // CALCS
-    function balanceOfWant() internal view returns (uint256) {
+    function balanceOfWant() public view returns (uint256) {
         return want.balanceOf(address(this));
     }
 

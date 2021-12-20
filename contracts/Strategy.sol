@@ -50,6 +50,8 @@ contract Strategy is BaseStrategy {
 
     }
 
+    receive() external payable {}
+
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
 
     function name() external view override returns (string memory) {
@@ -115,16 +117,16 @@ contract Strategy is BaseStrategy {
 
         // TODO: getActiveMarketIndex for every 
         MarketParameters[] memory marketParameters = nProxy.getActiveMarkets(currencyID);
-        uint256 marketIndex = 1;
+        uint256 marketIndex = 2;
 
         BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
         
         // TODO: term (initially always shortest one)
         // TODO: calculate marketIndex taking into account currency and term
-        bytes32[] memory trades = new bytes32[](1);
+        bytes32[] memory trades = new bytes32[](2);
         weth.withdraw(availableWantBalance);
         trades[0] = getTradeFrom(marketIndex, availableWantBalance);
-
+        trades[1] = getTradeFrom(marketIndex, availableWantBalance);
         actions[0] = BalanceActionWithTrades(
             DepositActionType.DepositUnderlying,
             currencyID,
@@ -135,13 +137,13 @@ contract Strategy is BaseStrategy {
             trades);
 
         // TODO: check return value
-        nProxy.batchBalanceAndTradeAction(address(this), actions);
+        nProxy.batchBalanceAndTradeAction{value: availableWantBalance}(address(this), actions);
     }
 
     function getTradeFrom(uint256 marketIndex, uint256 amount) internal returns (bytes32 trade) {
         uint8 tradeType = uint8(0);
         uint8 marketIndex = uint8(marketIndex);
-        uint88 fCashAmount = uint88(amount);
+        uint88 fCashAmount = uint88(100398500/2);
         uint32 minSlippage = uint32(0);
         uint120 padding = uint120(0);
 

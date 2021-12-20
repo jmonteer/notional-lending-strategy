@@ -13,7 +13,7 @@ def main():
     # accountContract = Contract.from_explorer(nProxy.ACCOUNT_ACTION())
     # nProxy_account = Contract.from_abi("ACCOUNT", nProxy.address, accountContract.abi)
     # print(accountContract.selectors)
-    viewsContract = Contract.from_explorer(nProxy.VIEWS())
+    viewsContract = Contract(nProxy.VIEWS())
     nProxy_views = Contract.from_abi("VIEWS", nProxy.address, viewsContract.abi)
     # print(viewsContract.selectors)
 
@@ -28,19 +28,15 @@ def main():
     print("ETH currency Id is %d" % (ETH_currency_Id))
 
     gov = accounts.at("0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52", force=True)
-    yVault = Contract.from_explorer("0xa258C4606Ca8206D8aA700cE2143D7db854D168c")
+    yVault = Contract("0xa258C4606Ca8206D8aA700cE2143D7db854D168c")
 
     strategy = Strategy.deploy(yVault.address, nProxy.address, {"from": gov})
 
-    tx = yVault.addStrategy(strategy.address, 1000, 0, 100000000000000000000, 0, {"from":gov})
+    tx = yVault.addStrategy(strategy.address, 10, 0, 1000000000000000000, 0, {"from":gov})
 
     tx = strategy.harvest()
 
     bal = strategy.balanceOfWant()
 
     print("Balance is : {%d}" % bal)
-
-
-
-
-
+    assert False

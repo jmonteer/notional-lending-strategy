@@ -32,7 +32,9 @@ def main():
 
     strategy = Strategy.deploy(yVault.address, nProxy.address, {"from": gov})
 
-    tx = yVault.addStrategy(strategy.address, 1000, 0, 10000, 0, {"from":gov})
+    tx = yVault.addStrategy(strategy.address, 1000, 0, 100000000000000000000, 0, {"from":gov})
+
+    tx = strategy.harvest()
 
     bal = strategy.balanceOfWant()
 

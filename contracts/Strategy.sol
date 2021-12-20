@@ -6,6 +6,7 @@ pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
 
 import "../interfaces/notional/NotionalProxy.sol";
+import "../interfaces/IWETH.sol";
 
 
 // These are the core Yearn libraries
@@ -35,14 +36,18 @@ contract Strategy is BaseStrategy {
     NotionalProxy public immutable nProxy;
     uint16 private immutable currencyID; 
     uint16 public minAmountWant;
+    IWETH public weth;
 
     constructor(address _vault, NotionalProxy _nProxy) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
         // maxReportDelay = 6300;
         // profitFactor = 100;
         // debtThreshold = 0;
-        currencyID = 2;
+        currencyID = 1;
         nProxy = _nProxy;
+
+        weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+
     }
 
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
@@ -90,6 +95,9 @@ contract Strategy is BaseStrategy {
 
 
         // TODO: report loss, profit, debtPayment
+        _profit = 0;
+        _loss = 0;
+        _debtPayment = 0;
     }
 
     function adjustPosition(uint256 _debtOutstanding) internal override {
@@ -113,7 +121,8 @@ contract Strategy is BaseStrategy {
         
         // TODO: term (initially always shortest one)
         // TODO: calculate marketIndex taking into account currency and term
-        bytes32[] memory trades;
+        bytes32[] memory trades = new bytes32[](1);
+        weth.withdraw(availableWantBalance);
         trades[0] = getTradeFrom(marketIndex, availableWantBalance);
 
         actions[0] = BalanceActionWithTrades(
@@ -130,8 +139,18 @@ contract Strategy is BaseStrategy {
     }
 
     function getTradeFrom(uint256 marketIndex, uint256 amount) internal returns (bytes32 trade) {
-        // TODO: replicate remix test
-        return bytes32(0);
+        uint8 tradeType = uint8(0);
+        uint8 marketIndex = uint8(marketIndex);
+        uint88 fCashAmount = uint88(amount);
+        uint32 minSlippage = uint32(0);
+        uint120 padding = uint120(0);
+
+        bytes32 result = bytes32(uint(tradeType)) << 248;
+        result |= bytes32(uint(marketIndex) << 240);
+        result |= bytes32(uint(fCashAmount) << 152);
+        result |= bytes32(uint(minSlippage) << 120);
+
+        return result;
     }
 
     function liquidatePosition(uint256 _amountNeeded)

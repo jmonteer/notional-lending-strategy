@@ -7,11 +7,11 @@ import click
 def main():
     nProxy = Contract.from_explorer("0x1344A36A1B56144C3Bc62E7757377D288fDE0369")
     # print(nProxy.selectors)
-    # actionContract = Contract.from_explorer(nProxy.BATCH_ACTION())
-    # nProxy_batch = Contract.from_abi("BATCH", nProxy.address, actionContract.abi)
+    actionContract = Contract.from_explorer(nProxy.BATCH_ACTION())
+    nProxy_batch = Contract.from_abi("BATCH", nProxy.address, actionContract.abi)
     # print(actionContract.selectors)
-    # accountContract = Contract.from_explorer(nProxy.ACCOUNT_ACTION())
-    # nProxy_account = Contract.from_abi("ACCOUNT", nProxy.address, accountContract.abi)
+    accountContract = Contract.from_explorer(nProxy.ACCOUNT_ACTION())
+    nProxy_account = Contract.from_abi("ACCOUNT", nProxy.address, accountContract.abi)
     # print(accountContract.selectors)
     viewsContract = Contract(nProxy.VIEWS())
     nProxy_views = Contract.from_abi("VIEWS", nProxy.address, viewsContract.abi)
@@ -34,9 +34,16 @@ def main():
 
     tx = yVault.addStrategy(strategy.address, 10, 0, 1000000000000000000, 0, {"from":gov})
 
-    tx = strategy.harvest()
+    # tx = strategy.harvest()
+    # bal = strategy.balanceOfWant()
+    # print("Balance is : {%d}" % bal)
 
-    bal = strategy.balanceOfWant()
+    nProxy_batch.batchBalanceAndTradeAction(""0x12B1b1d8fF0896303E2C4d319087F5f14A537395"", \
+        [(2,1,999999990000000000,0,1,1,\
+            [0x00020000000000000005fbf64400d5992c000000000000000000000000000000])], \
+                {"from": "0x12B1b1d8fF0896303E2C4d319087F5f14A537395",\
+                     "value":999999990000000000})
 
-    print("Balance is : {%d}" % bal)
+
+
     assert False

@@ -134,7 +134,7 @@ contract Strategy is BaseStrategy {
     }
 
     function adjustPosition(uint256 _debtOutstanding) internal override {
-        // TODO: check if we have invested in past terms
+        // Check if we have invested in past terms
         // probably we need to check if we have a previous term we can take funds from
         _checkPositionsAndWithdraw();
 
@@ -154,8 +154,8 @@ contract Strategy is BaseStrategy {
         
         MarketParameters[] memory marketParameters = nProxy.getActiveMarkets(currencyID);
 
-        // TODO: Instead only selling the available amount in market 1, loop through all markets to 
-        // lend all asset cash until either no more asset cash is lendable or not enough liquidity
+        // TODO: Instead only selling the amount in market 1, loop through all markets to 
+        // identify higher APY opportunities
 
         int256 fCashAmountToTrade = nProxy.getfCashAmountGivenCashAmount(
             currencyID, 
@@ -166,6 +166,7 @@ contract Strategy is BaseStrategy {
 
         // Trade the shortest maturity market
         bytes32[] memory trades = new bytes32[](1);
+        // Scale down fCash amount 95% to avoid potential reverts
         trades[0] = getTradeFrom(1, uint256(fCashAmountToTrade).mul(SCALE_FCASH).div(MAX_BPS));
         
         testVar4 = fCashAmountToTrade;
@@ -292,14 +293,24 @@ contract Strategy is BaseStrategy {
 
     function _checkPositionsAndWithdraw() internal {
 
-        PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
+        // PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
 
-        for(uint256 i=0; i<_accountPortfolio.length; i++) {
+        // for(uint256 i=0; i<_accountPortfolio.length; i++) {
 
-            if(_accountPortfolio[i].maturity <= block.timestamp) {
-                // Withdraw position, to receive want balance here
-            }
+        //     if(_accountPortfolio[i].maturity <= block.timestamp) {
+        //         // Withdraw position, to receive want balance here
+        //     }
 
+        // }
+
+        nProxy.settleAccount(address(this));
+
+        (int256 cashBalance, 
+        int256 nTokenBalance,
+        uint256 lastClaimTime) = nProxy.getAccountBalance(currencyID, address(this));
+
+        if(cashBalance > 0) {
+            nProxy.withdraw(currencyID, uint88(cashBalance), true);
         }
 
     }

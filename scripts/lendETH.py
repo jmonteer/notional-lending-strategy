@@ -18,6 +18,7 @@ def main():
 
     # DAI_token_address = "0x6B175474E89094C44Da98b954EedeAC495271d0F"
     # cDAI_token_address = "0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643"
+    # yVaultDAI = "0xdA816459F1AB5631232FE5e97a05BBBb94970c95"
     # DAI_currency_Id = nProxy_views.getCurrencyId(cDAI_token_address)
     # print("DAI currency Id is %d" % (DAI_currency_Id))
 
@@ -39,6 +40,7 @@ def main():
     #             {"from": "0x12B1b1d8fF0896303E2C4d319087F5f14A537395",\
     #                  "value":999999990000000000})
 
-
+    # nProxy_account.settleAccount(strategy, {"from":strategy})
+    # nProxy_account.withdraw(1,4736620792,True, {"from":strategy})
 
     assert False

@@ -44,10 +44,15 @@ contract Strategy is BaseStrategy {
     uint16 public minAmountWant;
     IWETH public weth;
 
+    uint256 private constant MAX_BPS = 10_000;
+    uint256 private SCALE_FCASH = 9_500;
+
+    // DEBUGGING VARIABLES - WILL BE REMOVED
     uint256 public testVar1;
     int256 public testVar2;
     int256 public testVar3;
     int256 public testVar4;
+    bytes32 public testVar5;
 
     constructor(address _vault, NotionalProxy _nProxy) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
@@ -142,9 +147,8 @@ contract Strategy is BaseStrategy {
             return;
         }
 
-
+        // Only necessary for wETH/ ETH pair
         weth.withdraw(availableWantBalance);
-        int256 availableWantInAsset = _wantToAsset(availableWantBalance);
         
         BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
         
@@ -152,35 +156,21 @@ contract Strategy is BaseStrategy {
 
         // TODO: Instead only selling the available amount in market 1, loop through all markets to 
         // lend all asset cash until either no more asset cash is lendable or not enough liquidity
-        
-        // for(uint256 i=0; i<marketParameters.length; i++) {
-        //     int256 cashAmountToTrade = min(marketParameters[i].totalAssetCash, availableWantInAsset);
-            
-        // }
 
-        // int256 cashAmountToTrade = Math.min(marketParameters[0].totalAssetCash, availableWantInAsset);
-
-        int256 cashAmountToTrade = availableWantInAsset;
-        if(marketParameters[0].totalAssetCash <= availableWantInAsset) {
-            cashAmountToTrade = marketParameters[0].totalAssetCash;
-            availableWantInAsset -= marketParameters[0].totalAssetCash;
-        }
         int256 fCashAmountToTrade = nProxy.getfCashAmountGivenCashAmount(
             currencyID, 
-            -int88(cashAmountToTrade), 
+            -int88(availableWantBalance / 1e10), 
             1, 
             block.timestamp
             );
 
-        // Debugging variables
-        testVar1 = availableWantBalance;
-        testVar2 = availableWantInAsset;
-        testVar3 = cashAmountToTrade;
-        testVar4 = fCashAmountToTrade;
-
         // Trade the shortest maturity market
         bytes32[] memory trades = new bytes32[](1);
-        trades[0] = getTradeFrom(1, fCashAmountToTrade);
+        trades[0] = getTradeFrom(1, uint256(fCashAmountToTrade).mul(SCALE_FCASH).div(MAX_BPS));
+        
+        testVar4 = fCashAmountToTrade;
+        testVar5 = trades[0];
+        
         actions[0] = BalanceActionWithTrades(
             DepositActionType.DepositUnderlying,
             currencyID,
@@ -193,14 +183,14 @@ contract Strategy is BaseStrategy {
         nProxy.batchBalanceAndTradeAction{value: availableWantBalance}(address(this), actions);
     }
 
-    function getTradeFrom(uint256 _marketIndex, int256 _amount) internal returns (bytes32 trade) {
+    function getTradeFrom(uint256 _marketIndex, uint256 _amount) internal returns (bytes32 result) {
         uint8 tradeType = uint8(0);
         uint8 marketIndex = uint8(_marketIndex);
         uint88 fCashAmount = uint88(_amount);
         uint32 minSlippage = uint32(0);
         uint120 padding = uint120(0);
 
-        bytes32 result = bytes32(uint(tradeType)) << 248;
+        result = bytes32(uint(tradeType)) << 248;
         result |= bytes32(uint(marketIndex) << 240);
         result |= bytes32(uint(fCashAmount) << 152);
         result |= bytes32(uint(minSlippage) << 120);

@@ -167,7 +167,11 @@ contract Strategy is BaseStrategy {
         // Trade the shortest maturity market
         bytes32[] memory trades = new bytes32[](1);
         // Scale down fCash amount 95% to avoid potential reverts
-        trades[0] = getTradeFrom(1, uint256(fCashAmountToTrade).mul(SCALE_FCASH).div(MAX_BPS));
+        trades[0] = getTradeFrom(
+            0, 
+            1, 
+            uint256(fCashAmountToTrade).mul(SCALE_FCASH).div(MAX_BPS)
+            );
         
         testVar4 = fCashAmountToTrade;
         testVar5 = trades[0];
@@ -184,8 +188,8 @@ contract Strategy is BaseStrategy {
         nProxy.batchBalanceAndTradeAction{value: availableWantBalance}(address(this), actions);
     }
 
-    function getTradeFrom(uint256 _marketIndex, uint256 _amount) internal returns (bytes32 result) {
-        uint8 tradeType = uint8(0);
+    function getTradeFrom(uint8 _tradeType, uint256 _marketIndex, uint256 _amount) internal returns (bytes32 result) {
+        uint8 tradeType = uint8(_tradeType);
         uint8 marketIndex = uint8(_marketIndex);
         uint88 fCashAmount = uint88(_amount);
         uint32 minSlippage = uint32(0);
@@ -209,18 +213,40 @@ contract Strategy is BaseStrategy {
             return (_amountNeeded, 0);
         }
 
-        // Calculate amount of asset cash that you need to sell
-        int256 amountNeededAsset = _wantToAsset(_amountNeeded);
-        MarketParameters[] memory marketParameters = nProxy.getActiveMarkets(currencyID);
-        // Loop through all active markets to assess the amount of asset cash that could be sold
-        for(uint256 i=0; i<marketParameters.length; i++) {
-            if(marketParameters[i].totalAssetCash >= amountNeededAsset) {
-                // TODO: Sell all here
-            } else {
-                // TODO: Sell only market available fCash and go to next market
-                amountNeededAsset -= marketParameters[i].totalAssetCash;
-            }
+        PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
+        bytes32[] memory trades = new bytes32[](1);
+        
+        uint256 _remainingAmount = _amountNeeded;
+        // TODO: Also loop through active markets as each position can only be closed against its own market
+        // Use maturity date to identify the active market!
+        for(uint256 i=0; i<_accountPortfolio.length; i++) {
+            (int256 cashPosition, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(
+                currencyID,
+                int88(-_accountPortfolio[i].notional),
+                1,
+                block.timestamp
+            );
+
+            // if(underlyingPosition >= int256(_remainingAmount)) {
+            //     trades.push(getTradeFrom(1, 1, _remainingAmount));
+                
+            // } else {
+            //     trades.push(getTradeFrom(1, 1, uint256(underlyingPosition)));
+            //     _remainingAmount -= uint256(underlyingPosition);
+            // }
         }
+
+        BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
+        actions[0] = BalanceActionWithTrades(
+            DepositActionType.None,
+            currencyID,
+            0,
+            0, 
+            true,
+            true,
+            trades
+        );
+
         // Assess result 
 
         uint256 totalAssets = want.balanceOf(address(this));

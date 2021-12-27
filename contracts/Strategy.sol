@@ -214,26 +214,44 @@ contract Strategy is BaseStrategy {
         }
 
         PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
-        bytes32[] memory trades = new bytes32[](1);
+        MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
+        bytes32[] memory trades = new bytes32[](_accountPortfolio.length);
         
         uint256 _remainingAmount = _amountNeeded;
         // TODO: Also loop through active markets as each position can only be closed against its own market
         // Use maturity date to identify the active market!
         for(uint256 i=0; i<_accountPortfolio.length; i++) {
-            (int256 cashPosition, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(
-                currencyID,
-                int88(-_accountPortfolio[i].notional),
-                1,
-                block.timestamp
-            );
+            if (_remainingAmount > 0) {
+                for(uint256 j=0; j<_activeMarkets.length; j++){
+                    if(_accountPortfolio[i].maturity == _activeMarkets[j].maturity) {
+                        (int256 cashPosition, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(
+                            currencyID,
+                            int88(-_accountPortfolio[i].notional),
+                            j+1,
+                            block.timestamp
+                        );
+                        underlyingPosition = underlyingPosition * 1e10;
+                        if (underlyingPosition > 0) {
+                            if(underlyingPosition >= int256(_remainingAmount)) {
 
-            // if(underlyingPosition >= int256(_remainingAmount)) {
-            //     trades.push(getTradeFrom(1, 1, _remainingAmount));
-                
-            // } else {
-            //     trades.push(getTradeFrom(1, 1, uint256(underlyingPosition)));
-            //     _remainingAmount -= uint256(underlyingPosition);
-            // }
+                                int256 _fCashRemainingAmount = nProxy.getfCashAmountGivenCashAmount(
+                                    currencyID,
+                                    -int88(_remainingAmount / 1e10),
+                                    j+1,
+                                    block.timestamp
+                                );
+
+                                trades[i] = getTradeFrom(1, j+1, uint256(_fCashRemainingAmount));
+                                _remainingAmount = 0;
+                            } else {
+                                trades[i] = getTradeFrom(1, j+1, uint256(_accountPortfolio[i].notional));
+                                _remainingAmount -= uint256(underlyingPosition);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
@@ -246,6 +264,7 @@ contract Strategy is BaseStrategy {
             true,
             trades
         );
+        nProxy.batchBalanceAndTradeAction{value: 0}(address(this), actions);
 
         // Assess result 
 
@@ -259,8 +278,46 @@ contract Strategy is BaseStrategy {
     }
 
     function liquidateAllPositions() internal override returns (uint256) {
-        // TODO: Liquidate all positions and return the amount freed.
+        PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
+        MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
+        bytes32[] memory trades = new bytes32[](_accountPortfolio.length);
+
+        for(uint256 i=0; i<_accountPortfolio.length; i++) {
+            
+            for(uint256 j=0; j<_activeMarkets.length; j++){
+                if(_accountPortfolio[i].maturity == _activeMarkets[j].maturity) {
+                    (int256 cashPosition, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(
+                        currencyID,
+                        int88(-_accountPortfolio[i].notional),
+                        j+1,
+                        block.timestamp
+                    );
+                    trades[i] = getTradeFrom(1, j+1, uint256(_accountPortfolio[i].notional));
+                    break;
+                }
+            }
+        }
+
+        BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
+        actions[0] = BalanceActionWithTrades(
+            DepositActionType.None,
+            currencyID,
+            0,
+            0, 
+            true,
+            true,
+            trades
+        );
+        nProxy.batchBalanceAndTradeAction{value: 0}(address(this), actions);
+        
         return want.balanceOf(address(this));
+    }
+    function _liquidateAll() public {
+        liquidateAllPositions();
+    }
+
+    function _liquidate(uint256 _amountNeeded) public returns (uint256 _liquidatedAmount, uint256 _loss){
+        (_liquidatedAmount, _loss) = liquidatePosition(_amountNeeded);
     }
 
     // NOTE: Can override `tendTrigger` and `harvestTrigger` if necessary

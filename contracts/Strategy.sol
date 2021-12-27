@@ -76,11 +76,11 @@ contract Strategy is BaseStrategy {
     }
 
     function estimatedTotalAssets() public view override returns (uint256) {
-        // TODO: check value of lent amount (using Account)
-        // TODO: add want
+        
         return balanceOfWant()
             .add(_getTotalValueFromPortfolio())
-            // .sub() TODO: Include cost of getting out
+            // .sub() TODO: Include cost of getting out: Already included in value of fcash?
+            // Add ETH balance of weth vault? Or re-deposit after withdraw
         ;
     }
 
@@ -172,7 +172,7 @@ contract Strategy is BaseStrategy {
             1, 
             uint256(fCashAmountToTrade).mul(SCALE_FCASH).div(MAX_BPS)
             );
-        
+        testVar1 = availableWantBalance;
         testVar4 = fCashAmountToTrade;
         testVar5 = trades[0];
         
@@ -312,6 +312,7 @@ contract Strategy is BaseStrategy {
         
         return want.balanceOf(address(this));
     }
+    // DEBUGGING FUNCTIONS:
     function _liquidateAll() public {
         liquidateAllPositions();
     }
@@ -319,6 +320,8 @@ contract Strategy is BaseStrategy {
     function _liquidate(uint256 _amountNeeded) public returns (uint256 _liquidatedAmount, uint256 _loss){
         (_liquidatedAmount, _loss) = liquidatePosition(_amountNeeded);
     }
+
+    // END OF DEBUGGING FUNCTIONS
 
     // NOTE: Can override `tendTrigger` and `harvestTrigger` if necessary
 
@@ -400,15 +403,21 @@ contract Strategy is BaseStrategy {
 
     function _getTotalValueFromPortfolio() internal view returns(uint256 _totalWantValue) {
         PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
+        MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
         
         for(uint256 i=0; i<_accountPortfolio.length; i++) {
-            (int256 cashPosition, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(currencyID,
-            int88(-_accountPortfolio[i].notional),
-            1,
-            block.timestamp
-            );
-
-            _totalWantValue += _assetToWant(cashPosition);
+            for(uint256 j=0; j<_activeMarkets.length; j++){
+                if(_accountPortfolio[i].maturity == _activeMarkets[j].maturity) {
+                    (int256 cashPosition, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(
+                        currencyID,
+                        int88(-_accountPortfolio[i].notional),
+                        j+1,
+                        block.timestamp
+                    );
+                    _totalWantValue += uint256(underlyingPosition) * 1e10;
+                    break;
+                }
+            }
         }
     }
 

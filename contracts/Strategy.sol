@@ -25,6 +25,7 @@ import "@openzeppelin/contracts/math/Math.sol";
 
 import {
     BalanceActionWithTrades,
+    AccountContext,
     PortfolioAsset,
     AssetRateParameters,
     Token,
@@ -41,29 +42,18 @@ contract Strategy is BaseStrategy {
 
     NotionalProxy public immutable nProxy;
     uint16 private immutable currencyID; 
+    uint256 private immutable DECIMALS_DIFFERENCE;
     uint16 public minAmountWant;
-    IWETH public weth;
+    IWETH public constant weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     uint256 private constant MAX_BPS = 10_000;
-    uint256 private SCALE_FCASH = 9_500;
 
-    // DEBUGGING VARIABLES - WILL BE REMOVED
-    uint256 public testVar1;
-    int256 public testVar2;
-    int256 public testVar3;
-    int256 public testVar4;
-    bytes32 public testVar5;
-
-    constructor(address _vault, NotionalProxy _nProxy) public BaseStrategy(_vault) {
-        // You can set these parameters on deployment to whatever you want
-        // maxReportDelay = 6300;
-        // profitFactor = 100;
-        // debtThreshold = 0;
-        currencyID = 1;
+    constructor(address _vault, NotionalProxy _nProxy, uint16 _currencyID) public BaseStrategy(_vault) {
+        currencyID = _currencyID;
         nProxy = _nProxy;
 
-        weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
-
+        (Token memory assetToken, Token memory underlying) = _nProxy.getCurrency(_currencyID);
+        DECIMALS_DIFFERENCE = uint256(underlying.decimals).mul(MAX_BPS).div(uint256(assetToken.decimals));
     }
 
     receive() external payable {}
@@ -76,11 +66,13 @@ contract Strategy is BaseStrategy {
     }
 
     function estimatedTotalAssets() public view override returns (uint256) {
-        
+        // To estimate the assets under management of the strategy we add the want balance already 
+        // in the contract and the current valuation of the non-matured positions (including the cost of)
+        // closing the position early
+        // This function is supposed to be called after _checkPositionsAndWithdraw() so the matured positions 
+        // are supposed to already be included in the contract's want balance
         return balanceOfWant()
             .add(_getTotalValueFromPortfolio())
-            // .sub() TODO: Include cost of getting out: Already included in value of fcash?
-            // Add ETH balance of weth vault? Or re-deposit after withdraw
         ;
     }
 
@@ -100,43 +92,64 @@ contract Strategy is BaseStrategy {
         _checkPositionsAndWithdraw();
 
         // Calculate assets (estimatedTotalAssets)
-        uint256 totalAssetsAfterProfit = estimatedTotalAssets();
+        uint256 totalAssets = estimatedTotalAssets();
         // Get total debt from vault: vault.strategies(address(this)).totalDebt;
-        uint256 strategyTotalDebt = vault.strategies(address(this)).totalDebt;
+        uint256 totalDebt = vault.strategies(address(this)).totalDebt;
 
         // Calculate P&L: assets - debt ==> profit, loss
 
-        _profit = totalAssetsAfterProfit > strategyTotalDebt
-            ? totalAssetsAfterProfit.sub(strategyTotalDebt)
-            : 0;
-
-        uint256 _amountFreed;
-        (_amountFreed, _loss) = liquidatePosition(
-            _debtOutstanding.add(_profit)
-        );
-        _debtPayment = Math.min(_debtOutstanding, _amountFreed);
-
-        if (_loss > _profit) {
-            // Example:
-            // debtOutstanding 100, profit 50, _amountFreed 100, _loss 50
-            // loss should be 0, (50-50)
-            // profit should endup in 0
-            _loss = _loss.sub(_profit);
-            _profit = 0;
+        uint256 _unrealisedLosses;
+        if(totalDebt > totalAssets) {
+            // we have losses
+            _unrealisedLosses = totalDebt.sub(totalAssets);
         } else {
-            // Example:
-            // debtOutstanding 100, profit 50, _amountFreed 140, _loss 10
-            // _profit should be 40, (50 profit - 10 loss)
-            // loss should end up in be 0
-            _profit = _profit.sub(_loss);
-            _loss = 0;
+            // we have profit
+            _profit = totalAssets.sub(totalDebt);
+        }
+
+        // free funds to repay debt + profit to the strategy
+        uint256 wantBalance = balanceOfWant();
+        uint256 amountRequired = _debtOutstanding.add(_profit);
+        if(amountRequired > wantBalance) {
+           uint256 amountToLiquidate = amountRequired.sub(wantBalance);
+           uint256 lossesToBeRealised = _unrealisedLosses.mul(amountToLiquidate).div(totalDebt.sub(wantBalance));
+           uint256 newAmountRequired = _debtOutstanding.sub(lossesToBeRealised);
+           _loss = lossesToBeRealised;
+           amountRequired = newAmountRequired;
+            // we need to free funds
+            //liquidatePosition should not use balanceOfWant as liquidatedAmount
+            (uint256 amountAvailable, ) = liquidatePosition(newAmountRequired);
+            if(amountAvailable >= amountRequired) {
+                _debtPayment = _debtOutstanding;
+            // profit remains unchanged unless there is not enough to pay it
+                if(amountRequired.sub(_debtPayment) < _profit) {
+                    _profit = amountRequired.sub(_debtPayment);
+                }
+            } else {
+                // we were not able to free enough funds
+                if(amountAvailable < _debtOutstanding) {
+                    // available funds are lower than the repayment that we need to do
+                    _profit = 0;
+                    _debtPayment = amountAvailable;
+                    // we dont report losses here as the strategy might not be able to return in this harvest
+                    // but it will still be there for the next harvest
+                } else {
+                    // NOTE: amountRequired is always equal or greater than _debtOutstanding
+                    // important to use amountRequired just in case amountAvailable is > amountAvailable
+                    _debtPayment = _debtOutstanding;
+                    _profit = amountAvailable.sub(_debtPayment);
+                }
+            }
+        } else {
+            _debtPayment = _debtOutstanding;
+            // profit remains unchanged unless there is not enough to pay it
+            if(amountRequired.sub(_debtPayment) < _profit) {
+                _profit = amountRequired.sub(_debtPayment);
+            }
         }
     }
 
     function adjustPosition(uint256 _debtOutstanding) internal override {
-        // Check if we have invested in past terms
-        // probably we need to check if we have a previous term we can take funds from
-        _checkPositionsAndWithdraw();
 
         uint256 availableWantBalance = balanceOfWant();
         if(availableWantBalance <= _debtOutstanding) {
@@ -147,22 +160,20 @@ contract Strategy is BaseStrategy {
             return;
         }
 
-        // Only necessary for wETH/ ETH pair
-        weth.withdraw(availableWantBalance);
-        
-        BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
-        
-        MarketParameters[] memory marketParameters = nProxy.getActiveMarkets(currencyID);
+        if (currencyID == 1) {
+            // Only necessary for wETH/ ETH pair
+            weth.withdraw(availableWantBalance);
+        }
 
-        // TODO: Instead only selling the amount in market 1, loop through all markets to 
-        // identify higher APY opportunities
-
+        // Use market index = 1 as we are looking to lend into the shortest maturity
         int256 fCashAmountToTrade = nProxy.getfCashAmountGivenCashAmount(
             currencyID, 
-            -int88(availableWantBalance / 1e10), 
+            -int88(availableWantBalance.mul(MAX_BPS).div(DECIMALS_DIFFERENCE)), 
             1, 
             block.timestamp
             );
+
+        require(fCashAmountToTrade > 0);
 
         // Trade the shortest maturity market
         bytes32[] memory trades = new bytes32[](1);
@@ -170,22 +181,17 @@ contract Strategy is BaseStrategy {
         trades[0] = getTradeFrom(
             0, 
             1, 
-            uint256(fCashAmountToTrade).mul(SCALE_FCASH).div(MAX_BPS)
+            uint256(fCashAmountToTrade)
             );
-        testVar1 = availableWantBalance;
-        testVar4 = fCashAmountToTrade;
-        testVar5 = trades[0];
-        
-        actions[0] = BalanceActionWithTrades(
-            DepositActionType.DepositUnderlying,
-            currencyID,
-            availableWantBalance,
-            0, // TODO: review this
-            true, // TODO: review this
-            true, // TODO: review this
-            trades);
 
-        nProxy.batchBalanceAndTradeAction{value: availableWantBalance}(address(this), actions);
+        executeBalanceActionWithTrades(
+            DepositActionType.DepositUnderlying,
+            availableWantBalance,
+            0, 
+            true,
+            true,
+            trades
+        );
     }
 
     function getTradeFrom(uint8 _tradeType, uint256 _marketIndex, uint256 _amount) internal returns (bytes32 result) {
@@ -218,57 +224,51 @@ contract Strategy is BaseStrategy {
         bytes32[] memory trades = new bytes32[](_accountPortfolio.length);
         
         uint256 _remainingAmount = _amountNeeded;
-        // TODO: Also loop through active markets as each position can only be closed against its own market
+        // Also loop through active markets as each position can only be closed against its own market
         // Use maturity date to identify the active market!
         for(uint256 i=0; i<_accountPortfolio.length; i++) {
             if (_remainingAmount > 0) {
-                for(uint256 j=0; j<_activeMarkets.length; j++){
-                    if(_accountPortfolio[i].maturity == _activeMarkets[j].maturity) {
-                        (int256 cashPosition, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(
-                            currencyID,
-                            int88(-_accountPortfolio[i].notional),
-                            j+1,
-                            block.timestamp
+                uint256 _marketIndex = _getMarketIndexForMaturity(
+                    _accountPortfolio[i].maturity,
+                    _activeMarkets    
+                );
+                (int256 cashPosition, int256 underlyingInternalNotation) = nProxy.getCashAmountGivenfCashAmount(
+                    currencyID,
+                    int88(-_accountPortfolio[i].notional),
+                    _marketIndex,
+                    block.timestamp
+                );
+                uint256 underlyingPosition = uint256(underlyingInternalNotation).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
+                if (underlyingPosition > 0) {
+                    if(underlyingPosition >= _remainingAmount) {
+
+                        trades[i] = getTradeFrom(1, _marketIndex, 
+                        _remainingAmount.mul(uint256(_accountPortfolio[i].notional)).div(underlyingPosition)
                         );
-                        underlyingPosition = underlyingPosition * 1e10;
-                        if (underlyingPosition > 0) {
-                            if(underlyingPosition >= int256(_remainingAmount)) {
-
-                                int256 _fCashRemainingAmount = nProxy.getfCashAmountGivenCashAmount(
-                                    currencyID,
-                                    -int88(_remainingAmount / 1e10),
-                                    j+1,
-                                    block.timestamp
-                                );
-
-                                trades[i] = getTradeFrom(1, j+1, uint256(_fCashRemainingAmount));
-                                _remainingAmount = 0;
-                            } else {
-                                trades[i] = getTradeFrom(1, j+1, uint256(_accountPortfolio[i].notional));
-                                _remainingAmount -= uint256(underlyingPosition);
-                            }
-                            break;
-                        }
+                        _remainingAmount = 0;
+                        break;
+                    } else {
+                        trades[i] = getTradeFrom(1, _marketIndex, uint256(_accountPortfolio[i].notional));
+                        _remainingAmount -= underlyingPosition;
                     }
                 }
+                    
+                
             }
         }
 
-        BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
-        actions[0] = BalanceActionWithTrades(
+        executeBalanceActionWithTrades(
             DepositActionType.None,
-            currencyID,
             0,
             0, 
             true,
             true,
             trades
         );
-        nProxy.batchBalanceAndTradeAction{value: 0}(address(this), actions);
 
         // Assess result 
 
-        uint256 totalAssets = want.balanceOf(address(this));
+        uint256 totalAssets = balanceOfWant();
         if (_amountNeeded > totalAssets) {
             _liquidatedAmount = totalAssets;
             _loss = _amountNeeded.sub(totalAssets);
@@ -284,31 +284,29 @@ contract Strategy is BaseStrategy {
 
         for(uint256 i=0; i<_accountPortfolio.length; i++) {
             
-            for(uint256 j=0; j<_activeMarkets.length; j++){
-                if(_accountPortfolio[i].maturity == _activeMarkets[j].maturity) {
-                    (int256 cashPosition, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(
-                        currencyID,
-                        int88(-_accountPortfolio[i].notional),
-                        j+1,
-                        block.timestamp
-                    );
-                    trades[i] = getTradeFrom(1, j+1, uint256(_accountPortfolio[i].notional));
-                    break;
-                }
-            }
+            uint256 _marketIndex = _getMarketIndexForMaturity(
+                _accountPortfolio[i].maturity,
+                _activeMarkets    
+            );
+
+            (int256 cashPosition, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(
+                currencyID,
+                int88(-_accountPortfolio[i].notional),
+                _marketIndex,
+                block.timestamp
+            );
+            trades[i] = getTradeFrom(1, _marketIndex, uint256(_accountPortfolio[i].notional));
+                    
         }
 
-        BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
-        actions[0] = BalanceActionWithTrades(
+        executeBalanceActionWithTrades(
             DepositActionType.None,
-            currencyID,
             0,
             0, 
             true,
             true,
             trades
         );
-        nProxy.batchBalanceAndTradeAction{value: 0}(address(this), actions);
         
         return want.balanceOf(address(this));
     }
@@ -367,36 +365,53 @@ contract Strategy is BaseStrategy {
     function ethToWant(uint256 _amtInWei)
         public
         view
-        virtual
         override
         returns (uint256)
     {
-        // TODO create an accurate price oracle
-        return _amtInWei;
+        return _fromETH(_amtInWei, address(want));
+    }
+
+    function _fromETH(uint256 _amount, address asset)
+        internal
+        view
+        returns (uint256)
+    {
+        if (
+            _amount == 0 ||
+            _amount == type(uint256).max ||
+            address(asset) == address(weth) // 1:1 change
+        ) {
+            return _amount;
+        }
+
+        (
+            Token memory assetToken,
+            Token memory underlyingToken,
+            ETHRate memory ethRate,
+            AssetRateParameters memory assetRate
+        ) = nProxy.getCurrencyAndRates(currencyID);
+            
+        return _amount.mul(uint256(underlyingToken.decimals)).div(uint256(ethRate.rate));
     }
 
     // INTERNAL FUNCTIONS
 
     function _checkPositionsAndWithdraw() internal {
+        // We check if there is anything to settle in the account's portfolio by checking the account's
+        // nextSettleTime in the account context
+        AccountContext memory _accountContext = nProxy.getAccountContext(address(this));
 
-        // PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
+        // If there is something to settle, do it and withdraw to the strategy's balance
+        if (uint256(_accountContext.nextSettleTime) < block.timestamp) {
+            nProxy.settleAccount(address(this));
 
-        // for(uint256 i=0; i<_accountPortfolio.length; i++) {
+            (int256 cashBalance, 
+            int256 nTokenBalance,
+            uint256 lastClaimTime) = nProxy.getAccountBalance(currencyID, address(this));
 
-        //     if(_accountPortfolio[i].maturity <= block.timestamp) {
-        //         // Withdraw position, to receive want balance here
-        //     }
-
-        // }
-
-        nProxy.settleAccount(address(this));
-
-        (int256 cashBalance, 
-        int256 nTokenBalance,
-        uint256 lastClaimTime) = nProxy.getAccountBalance(currencyID, address(this));
-
-        if(cashBalance > 0) {
-            nProxy.withdraw(currencyID, uint88(cashBalance), true);
+            if(cashBalance > 0) {
+                nProxy.withdraw(currencyID, uint88(cashBalance), true);
+            }
         }
 
     }
@@ -414,7 +429,7 @@ contract Strategy is BaseStrategy {
                         j+1,
                         block.timestamp
                     );
-                    _totalWantValue += uint256(underlyingPosition) * 1e10;
+                    _totalWantValue += uint256(underlyingPosition).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
                     break;
                 }
             }
@@ -422,29 +437,50 @@ contract Strategy is BaseStrategy {
     }
 
     // CALCS
+    // TODO: Public for debugging make internal after
     function balanceOfWant() public view returns (uint256) {
         return want.balanceOf(address(this));
     }
 
-    function _wantToAsset(uint256 _availableWantBalance) public view returns(int256 _availableAssetBalance) {
-
-        (Token memory _assetToken,
-        Token memory _underlyingToken,
-        ETHRate memory _ethRate,
-        AssetRateParameters memory _assetRate) = nProxy.getCurrencyAndRates(currencyID);
-
-        _availableAssetBalance = int256(_availableWantBalance) * _underlyingToken.decimals / _assetRate.rate;
-    }
-
-    function _assetToWant(int256 _assetAmount) internal view returns(uint256 _wantAmount) {
-        (Token memory _assetToken,
-        Token memory _underlyingToken,
-        ETHRate memory _ethRate,
-        AssetRateParameters memory _assetRate) = nProxy.getCurrencyAndRates(currencyID);
-
-        _wantAmount = uint256(_assetAmount * _assetRate.rate / _underlyingToken.decimals);
+    function _getMarketIndexForMaturity(
+        uint256 _maturity, 
+        MarketParameters[] memory _activeMarkets
+    ) internal view returns(uint256) {
+        bool success = false;
+        for(uint256 j=0; j<_activeMarkets.length; j++){
+            if(_maturity == _activeMarkets[j].maturity) {
+                return j+1;
+            }
+        }
+        require(success, "No active market found for the required maturity");
     }
 
     // NOTIONAL FUNCTIONS
+
+    function executeBalanceActionWithTrades(
+        DepositActionType actionType,
+        uint256 depositActionAmount,
+        uint256 withdrawAmountInternalPrecision,
+        bool withdrawEntireCashBalance,
+        bool redeemToUnderlying,
+        bytes32[] memory trades) internal {
+        BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
+        actions[0] = BalanceActionWithTrades(
+            actionType,
+            currencyID,
+            depositActionAmount,
+            withdrawAmountInternalPrecision, 
+            withdrawEntireCashBalance,
+            redeemToUnderlying,
+            trades
+        );
+
+        if (currencyID == 1) {
+            nProxy.batchBalanceAndTradeAction{value: depositActionAmount}(address(this), actions);
+        } else {
+            nProxy.batchBalanceAndTradeAction(address(this), actions);
+        }
+
+    }
 
 }

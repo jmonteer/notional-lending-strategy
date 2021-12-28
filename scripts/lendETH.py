@@ -29,7 +29,12 @@ def main():
 
     gov = accounts.at("0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52", force=True)
     yVault = Contract("0xa258C4606Ca8206D8aA700cE2143D7db854D168c")
-    strategy = Strategy.deploy(yVault.address, nProxy.address, {"from": gov})
+    strategy = Strategy.deploy(
+        yVault.address, 
+        nProxy.address, 
+        ETH_currency_Id,
+        {"from": gov}
+    )
 
     tx = yVault.addStrategy(strategy.address, 10, 0, 1000000000000000000, 0, {"from":gov})
     tx = strategy.harvest()

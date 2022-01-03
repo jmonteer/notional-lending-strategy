@@ -442,6 +442,7 @@ contract Strategy is BaseStrategy {
         return want.balanceOf(address(this));
     }
 
+    // Get Market index fot a given market maturity to convert between cash and fcash
     function _getMarketIndexForMaturity(
         uint256 _maturity, 
         MarketParameters[] memory _activeMarkets

@@ -43,9 +43,9 @@ contract Strategy is BaseStrategy {
     // NotionalContract: proxy that points to a router with different implementations depending on function 
     NotionalProxy public immutable nProxy;
     // ID of the asset being lent in Notional
-    uint16 private immutable currencyID; 
+    uint16 public immutable currencyID; 
     // Difference of decimals between Notional system (8) and want
-    uint256 private immutable DECIMALS_DIFFERENCE;
+    uint256 public immutable DECIMALS_DIFFERENCE;
     // minimum amount of want to act on
     uint16 public minAmountWant;
     IWETH public constant weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
@@ -60,7 +60,7 @@ contract Strategy is BaseStrategy {
         (Token memory assetToken, Token memory underlying) = _nProxy.getCurrency(_currencyID);
         DECIMALS_DIFFERENCE = uint256(underlying.decimals).mul(MAX_BPS).div(uint256(assetToken.decimals));
 
-        require(address(want) == underlying.tokenAddress); // dev: currencyID is not correct
+        // require(address(want) == underlying.tokenAddress); // dev: currencyID is not correct
     }
 
     // For ETH based strategies
@@ -101,6 +101,8 @@ contract Strategy is BaseStrategy {
         // We only need profit for decision making
         (_profit, ) = getUnrealisedPL();
 
+        // TODO: shouldTakeProfit function to decide whether to report unrealized profits or not
+        // TODO: check if any open position -> False except if forceTakeProfit is True
         // free funds to repay debt + profit to the strategy
         uint256 wantBalance = balanceOfWant();
         uint256 amountRequired = _debtOutstanding.add(_profit);
@@ -203,14 +205,14 @@ contract Strategy is BaseStrategy {
 
         return result;
     }
-
-    function getUnrealisedPL() internal view returns (uint256 _unrealisedProfit, uint256 _unrealisedLoss) {
+    
+    function getUnrealisedPL() internal returns (uint256 _unrealisedProfit, uint256 _unrealisedLoss) {
         // Calculate assets. This includes profit and cost of closing current position. 
         // Due to cost of closing position, If called just after opening the position, assets < invested want
         uint256 totalAssets = estimatedTotalAssets();
         // Get total debt from vault
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
-
+        
         // Calculate current P&L
         if(totalDebt > totalAssets) {
             // we have losses
@@ -223,6 +225,7 @@ contract Strategy is BaseStrategy {
 
     }
 
+    event unrLosses(uint256 unrLosses);
 
     function liquidatePosition(uint256 _amountNeeded)
         internal
@@ -233,7 +236,7 @@ contract Strategy is BaseStrategy {
         // TODO: should we check if terms have finished? 
         // will be gas expensive but is correct
 
-        // _checkPositionsAndWithdraw();
+        _checkPositionsAndWithdraw();
 
         uint256 wantBalance = balanceOfWant();
         if (wantBalance >= _amountNeeded) {
@@ -308,8 +311,14 @@ contract Strategy is BaseStrategy {
             trades
         );
 
+        if (currencyID == 1) {
+            // Only necessary for wETH/ ETH pair
+            weth.deposit{value: address(this).balance}();
+        }
+
         // Assess result 
         uint256 totalAssets = balanceOfWant();
+        emit unrLosses(totalAssets);
         if (_amountNeeded > totalAssets) {
             _liquidatedAmount = totalAssets;
             // _loss should be equal to lossesToBeRealised ! 

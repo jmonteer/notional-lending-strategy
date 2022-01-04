@@ -21,12 +21,12 @@ def check_revoked_strategy(vault, strategy):
     return
 
 
-def check_harvest_profit(tx, profit_amount):
-    assert tx.events["Harvested"]["gain"] == profit_amount
+def check_harvest_profit(tx, profit_amount, RELATIVE_APPROX):
+    assert pytest.approx(tx.events["Harvested"]["profit"], rel=RELATIVE_APPROX) == profit_amount
 
 
-def check_harvest_loss(tx, loss_amount):
-    assert tx.events["Harvested"]["loss"] == loss_amount
+def check_harvest_loss(tx, loss_amount, RELATIVE_APPROX):
+    assert pytest.approx(tx.events["Harvested"]["loss"], rel=RELATIVE_APPROX) == loss_amount
 
 
 def check_accounting(vault, strategy, totalGain, totalLoss, totalDebt):

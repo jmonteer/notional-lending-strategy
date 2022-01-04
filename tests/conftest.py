@@ -18,6 +18,10 @@ def gov(accounts):
 def strat_ms(accounts):
     yield accounts.at("0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7", force=True)
 
+@pytest.fixture
+def notional_proxy():
+    yield "0x1344A36A1B56144C3Bc62E7757377D288fDE0369"
+
 
 @pytest.fixture
 def user(accounts):
@@ -48,6 +52,15 @@ def strategist(accounts):
 def keeper(accounts):
     yield accounts[5]
 
+@pytest.fixture
+def n_proxy():
+    yield Contract.from_explorer("0x1344A36A1B56144C3Bc62E7757377D288fDE0369")
+
+@pytest.fixture
+def n_proxy_views(n_proxy):
+    views_contract = Contract.from_explorer(n_proxy.VIEWS())
+    yield Contract.from_abi("VIEWS", n_proxy.address, views_contract.abi)
+
 
 token_addresses = {
     "WBTC": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",  # WBTC
@@ -64,7 +77,7 @@ token_addresses = {
     params=[
         # 'WBTC', # WBTC
         # "YFI",  # YFI
-        # "WETH",  # WETH
+        "WETH",  # WETH
         # 'LINK', # LINK
         # 'USDT', # USDT
         # 'DAI', # DAI
@@ -75,6 +88,17 @@ token_addresses = {
 )
 def token(request):
     yield Contract(token_addresses[request.param])
+
+currency_IDs = {
+    "WETH": 1,
+    "DAI": 2,  # DAI
+    "USDC": 3,  # USDC
+    # "WBTC": 4
+}
+
+@pytest.fixture
+def currencyID(token):
+    yield currency_IDs[token.symbol()]
 
 
 whale_addresses = {
@@ -107,7 +131,7 @@ token_prices = {
 @pytest.fixture(autouse=True)
 def amount(token, token_whale, user):
     # this will get the number of tokens (around $1m worth of token)
-    amillion = round(1_000_000 / token_prices.symbol())
+    amillion = round(1_000_000 / token_prices[token.symbol()])
     amount = amillion * 10 ** token.decimals()
     # In order to get some funds for the token you are about to use,
     # it impersonate a whale address
@@ -151,8 +175,8 @@ def live_vault(registry, token):
 
 
 @pytest.fixture
-def strategy(strategist, keeper, vault, Strategy, gov):
-    strategy = strategist.deploy(Strategy, vault)
+def strategy(strategist, keeper, vault, Strategy, gov, notional_proxy, currencyID):
+    strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID)
     strategy.setKeeper(keeper)
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
     yield strategy
@@ -186,3 +210,8 @@ def withdraw_no_losses(vault, token, amount, user):
 @pytest.fixture(scope="session", autouse=True)
 def RELATIVE_APPROX():
     yield 1e-5
+
+@pytest.fixture(scope="session", autouse=True)
+def MAX_BPS():
+    yield 1e4
+

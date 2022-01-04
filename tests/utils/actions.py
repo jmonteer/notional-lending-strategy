@@ -11,8 +11,14 @@ def user_deposit(user, vault, token, amount):
 
 
 # TODO: add args as required
-def generate_profit(amount):
+def generate_profit(next_settlement):
     # TODO: add action for simulating profit
+    delta = next_settlement - chain.time()
+    if (delta > 86400):
+        chain.sleep(delta - 86400)
+    else:
+        chain.sleep(delta)
+    chain.mine(1)
     return
 
 

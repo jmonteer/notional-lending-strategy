@@ -1,6 +1,7 @@
 import pytest
-from brownie import chain
+from brownie import chain, accounts
 import utils
+from eth_abi.packed import encode_abi_packed
 
 # This file is reserved for standard actions like deposits
 def user_deposit(user, vault, token, amount):
@@ -10,9 +11,7 @@ def user_deposit(user, vault, token, amount):
     assert token.balanceOf(vault.address) == amount
 
 
-# TODO: add args as required
-def generate_profit(next_settlement):
-    # TODO: add action for simulating profit
+def wait_until_settlement(next_settlement):
     delta = next_settlement - chain.time()
     if (delta > 86400):
         chain.sleep(delta - 86400)
@@ -21,10 +20,43 @@ def generate_profit(next_settlement):
     chain.mine(1)
     return
 
+def wait_half_until_settlement(next_settlement):
+    delta = next_settlement - chain.time()
+    chain.sleep(int(delta / 2))
+    chain.mine(1)
+    return
 
-# TODO: add args as required
-def generate_loss(amount):
-    # TODO: add action for simulating profit
+
+def whale_drop_rates(n_proxy_batch, whale, token, n_proxy_views, currencyID):
+    balance = accounts.at(whale, force=True).balance()
+
+    if (balance > 1000e18):
+        fcash_amount = n_proxy_views.getfCashAmountGivenCashAmount(currencyID, -500e8, 1, chain.time()+1)
+        trade = encode_abi_packed(
+            ["uint8", "uint8", "uint88", "uint32", "uint120"], 
+            [0, 1, fcash_amount, 0, 0]
+        )
+        n_proxy_batch.batchBalanceAndTradeAction(whale, \
+        [(2, currencyID, 1000e18, 0, 1, 1,\
+            [trade])], \
+                {"from": whale,\
+                     "value":1000e18})
+    else:
+        raise("Whale does not have enough tokens")
+
+    return
+
+def whale_exit(n_proxy_batch, whale, n_proxy_views, currencyID):
+    fcash_position = n_proxy_views.getAccount(whale)[2][0][3]
+    trade = encode_abi_packed(
+            ["uint8", "uint8", "uint88", "uint32", "uint120"], 
+            [1, 1, fcash_position, 0, 0]
+        )
+    n_proxy_batch.batchBalanceAndTradeAction(whale, \
+        [(0, currencyID, 0, 0, 1, 1,\
+            [trade])], \
+                {"from": whale,\
+                     "value":0})
     return
 
 

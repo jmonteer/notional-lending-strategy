@@ -61,6 +61,11 @@ def n_proxy_views(n_proxy):
     views_contract = Contract.from_explorer(n_proxy.VIEWS())
     yield Contract.from_abi("VIEWS", n_proxy.address, views_contract.abi)
 
+@pytest.fixture
+def n_proxy_batch(n_proxy):
+    batch_contract = Contract.from_explorer(n_proxy.BATCH_ACTION())
+    yield Contract.from_abi("BATCH", n_proxy.address, batch_contract.abi)
+
 
 token_addresses = {
     "WBTC": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",  # WBTC
@@ -131,7 +136,7 @@ token_prices = {
 @pytest.fixture(autouse=True)
 def amount(token, token_whale, user):
     # this will get the number of tokens (around $1m worth of token)
-    amillion = round(1_000_000 / token_prices[token.symbol()])
+    amillion = round(100_000 / token_prices[token.symbol()])
     amount = amillion * 10 ** token.decimals()
     # In order to get some funds for the token you are about to use,
     # it impersonate a whale address
@@ -161,6 +166,8 @@ def vault(pm, gov, rewards, guardian, management, token):
     vault.initialize(token, gov, rewards, "", "", guardian, management)
     vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
     vault.setManagement(management, {"from": gov})
+    vault.setManagementFee(0, {"from": gov})
+    vault.setPerformanceFee(0, {"from": gov})
     yield vault
 
 
@@ -178,7 +185,7 @@ def live_vault(registry, token):
 def strategy(strategist, keeper, vault, Strategy, gov, notional_proxy, currencyID):
     strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID)
     strategy.setKeeper(keeper)
-    vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
+    vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 0, {"from": gov})
     yield strategy
 
 
@@ -191,7 +198,7 @@ def cloned_strategy(Strategy, vault, strategy, strategist, gov):
     ).return_value
     cloned_strategy = Strategy.at(cloned_strategy)
     vault.revokeStrategy(strategy)
-    vault.addStrategy(cloned_strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
+    vault.addStrategy(cloned_strategy, 10_000, 0, 2 ** 256 - 1, 0, {"from": gov})
     yield
 
 
@@ -199,17 +206,16 @@ def cloned_strategy(Strategy, vault, strategy, strategist, gov):
 def withdraw_no_losses(vault, token, amount, user):
     yield
     if vault.totalSupply() != 0:
+        vault.withdraw({"from": user})
+        # check that we dont have previously realised losses
+        # NOTE: this assumes deposit is `amount`
+        assert token.balanceOf(user) >= amount
         return
-    vault.withdraw({"from": user})
-
-    # check that we dont have previously realised losses
-    # NOTE: this assumes deposit is `amount`
-    assert token.balanceOf(user) >= amount
 
 
 @pytest.fixture(scope="session", autouse=True)
 def RELATIVE_APPROX():
-    yield 1e-5
+    yield 1e-3
 
 @pytest.fixture(scope="session", autouse=True)
 def MAX_BPS():

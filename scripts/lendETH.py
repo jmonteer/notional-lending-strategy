@@ -17,6 +17,8 @@ def main():
     viewsContract = Contract.from_explorer(nProxy.VIEWS())
     nProxy_views = Contract.from_abi("VIEWS", nProxy.address, viewsContract.abi)
 
+    whale = accounts.at("0x28C6c06298d514Db089934071355E5743bf21d60", force=True)
+
     # DAI_token_address = "0x6B175474E89094C44Da98b954EedeAC495271d0F"
     # cDAI_token_address = "0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643"
     # yVaultDAI = "0xdA816459F1AB5631232FE5e97a05BBBb94970c95"

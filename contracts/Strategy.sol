@@ -163,6 +163,7 @@ contract Strategy is BaseStrategy {
         }
 
         // Use market index = 1 as we are looking to lend into the shortest maturity
+        // NOTE: May revert if the availableWantBalance is too high and interest rates get to < 0
         int256 fCashAmountToTrade = nProxy.getfCashAmountGivenCashAmount(
             _currencyID, 
             -int88(availableWantBalance.mul(MAX_BPS).div(DECIMALS_DIFFERENCE)), 

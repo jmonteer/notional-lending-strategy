@@ -58,13 +58,22 @@ def n_proxy():
 
 @pytest.fixture
 def n_proxy_views(n_proxy):
-    views_contract = Contract.from_explorer(n_proxy.VIEWS())
+    views_contract = Contract(n_proxy.VIEWS())
     yield Contract.from_abi("VIEWS", n_proxy.address, views_contract.abi)
 
 @pytest.fixture
 def n_proxy_batch(n_proxy):
-    batch_contract = Contract.from_explorer(n_proxy.BATCH_ACTION())
+    batch_contract = Contract(n_proxy.BATCH_ACTION())
     yield Contract.from_abi("BATCH", n_proxy.address, batch_contract.abi)
+
+@pytest.fixture
+def n_proxy_account(n_proxy):
+    account_contract = Contract(n_proxy.ACCOUNT_ACTION())
+    yield Contract.from_abi("ACCOUNT", n_proxy.address, account_contract.abi)
+
+@pytest.fixture
+def n_proxy_implementation(NotionalImplementation, n_proxy, user):
+    yield NotionalImplementation.deploy(n_proxy.address, {"from":user})
 
 
 token_addresses = {
@@ -96,8 +105,8 @@ def token(request):
 
 currency_IDs = {
     "WETH": 1,
-    "DAI": 2,  # DAI
-    "USDC": 3,  # USDC
+    # "DAI": 2,  # DAI
+    # "USDC": 3,  # USDC
     # "WBTC": 4
 }
 

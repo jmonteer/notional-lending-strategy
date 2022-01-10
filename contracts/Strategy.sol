@@ -85,6 +85,7 @@ contract Strategy is BaseStrategy {
             .add(_getTotalValueFromPortfolio())
         ;
     }
+    uint256 public testVar1;
 
     function prepareReturn(uint256 _debtOutstanding)
         internal
@@ -100,6 +101,7 @@ contract Strategy is BaseStrategy {
 
         // We only need profit for decision making
         (_profit, ) = getUnrealisedPL();
+        testVar1 = _profit;
 
         // TODO: shouldTakeProfit function to decide whether to report unrealized profits or not
         // TODO: check if any open position -> False except if forceTakeProfit is True
@@ -226,8 +228,6 @@ contract Strategy is BaseStrategy {
 
     }
 
-    event unrLosses(uint256 unrLosses);
-
     function liquidatePosition(uint256 _amountNeeded)
         internal
         override
@@ -319,7 +319,7 @@ contract Strategy is BaseStrategy {
 
         // Assess result 
         uint256 totalAssets = balanceOfWant();
-        emit unrLosses(totalAssets);
+        
         if (_amountNeeded > totalAssets) {
             _liquidatedAmount = totalAssets;
             // _loss should be equal to lossesToBeRealised ! 

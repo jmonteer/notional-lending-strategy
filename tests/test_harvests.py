@@ -66,7 +66,7 @@ def test_profitable_harvest(
     assert vault.pricePerShare() > before_pps
 
 
-# tests harvesting a strategy that reports losses
+# # tests harvesting a strategy that reports losses
 def test_lossy_harvest(
     chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX, MAX_BPS,
     n_proxy_views, n_proxy_batch, token_whale, currencyID
@@ -114,39 +114,54 @@ def test_lossy_harvest(
     assert pytest.approx(token.balanceOf(user) + loss_amount, rel=RELATIVE_APPROX) == amount
 
 
-# # tests harvesting a strategy twice, once with loss and another with profit
-# # it checks that even with previous profit and losses, accounting works as expected
-# def test_choppy_harvest(
-#     chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX
-# ):
-#     # Deposit to the vault
-#     actions.user_deposit(user, vault, token, amount)
+# tests harvesting a strategy twice, once with loss and another with profit
+# it checks that even with previous profit and losses, accounting works as expected
+def test_choppy_harvest(
+    chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX, MAX_BPS,
+    n_proxy_views, n_proxy_batch, token_whale, currencyID, n_proxy_account, n_proxy_implementation
+):
+    # Deposit to the vault
+    actions.user_deposit(user, vault, token, amount)
 
-#     # Harvest 1: Send funds through the strategy
-#     chain.sleep(1)
-#     strategy.harvest({"from": strategist})
+    actions.whale_drop_rates(n_proxy_batch, token_whale, token, n_proxy_views, currencyID)
 
-#     assert pytest.approx(strategy.estimatedTotalAssets(), rel=RELATIVE_APPROX) == amount
+    # Harvest 1: Send funds through the strategy
+    chain.sleep(1)
+    strategy.harvest({"from": strategist})
 
-#     # TODO: Add some code before harvest #2 to simulate a lower pps
-#     loss_amount = amount * 0.05
-#     actions.generate_loss(loss_amount)
+    account = n_proxy_views.getAccount(strategy)
+    next_settlement = account[0][0]
 
-#     # Harvest 2: Realize loss
-#     chain.sleep(1)
-#     tx = strategy.harvest({"from": strategist})
-#     checks.check_harvest_loss(tx, loss_amount)
+    actions.wait_half_until_settlement(next_settlement)
+    actions.whale_exit(n_proxy_batch, token_whale, n_proxy_views, currencyID)
 
-#     # TODO: Add some code before harvest #3 to simulate a higher pps ()
-#     profit_amount = amount * 0.1  # 10% profit
-#     actions.generate_profit(profit_amount)
+    print("TA: ", strategy.estimatedTotalAssets())
 
-#     chain.sleep(1)
-#     tx = strategy.harvest({"from": strategist})
-#     checks.check_harvest_profit(tx, profit_amount)
+    # Harvest 2: Realize loss
+    chain.sleep(1)
+    position_cash = strategy.estimatedTotalAssets()
+    loss_amount = (amount - position_cash) / 2
+    assert loss_amount > 0
+    vault.updateStrategyDebtRatio(strategy, 5_000, {"from":vault.governance()})
+    tx = strategy.harvest({"from": strategist})
+    # checks.check_harvest_loss(tx, loss_amount, RELATIVE_APPROX)
 
-#     # User will withdraw accepting losses
-#     vault.withdraw({"from": user})
+    # Harvest 3: Realize profit on the rest of the position
+    print("TA 1: ", strategy.estimatedTotalAssets())
+    chain.sleep(next_settlement - chain.time() - 8000)
+    chain.mine(1)
+    print("TA 2: ", strategy.estimatedTotalAssets())
+    # n_proxy_implementation.initializeMarkets(currencyID, 0)
+    # chain.mine(1)
+    position_cash = strategy.estimatedTotalAssets()
+    profit_amount = position_cash - vault.totalDebt()
+    assert profit_amount > 0
+    vault.updateStrategyDebtRatio(strategy, 0, {"from":vault.governance()})
+    tx = strategy.harvest({"from": strategist})
 
-#     # User will take 100% losses and 100% profits
-#     assert token.balanceOf(user) == amount + profit_amount - loss_amount
+    checks.check_harvest_profit(tx, profit_amount, RELATIVE_APPROX)
+
+    # assert token.balanceOf(user) == amount + 5e20 - 3
+
+    # User will withdraw accepting losses
+    vault.withdraw({"from": user})

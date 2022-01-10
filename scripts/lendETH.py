@@ -26,22 +26,22 @@ def main():
     # print("DAI currency Id is %d" % (DAI_currency_Id))
 
     # ETH_token_address = "0x0"
-    # cETH_token_address = '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5'
-    # ETH_currency_Id = nProxy_views.getCurrencyId(cETH_token_address)
+    cETH_token_address = '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5'
+    ETH_currency_Id = nProxy_views.getCurrencyId(cETH_token_address)
     # print("ETH currency Id is %d" % (ETH_currency_Id))
 
-    # gov = accounts.at("0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52", force=True)
+    gov = accounts.at("0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52", force=True)
     # whale = accounts.at("0x28c6c06298d514db089934071355e5743bf21d60", force=True)
 
-    # yVault = Contract.from_explorer("0xa258C4606Ca8206D8aA700cE2143D7db854D168c")
+    yVault = Contract.from_explorer("0xa258C4606Ca8206D8aA700cE2143D7db854D168c")
 
-    # start = datetime.datetime.now()
-    # strategy = Strategy.deploy(
-    #     yVault.address, 
-    #     nProxy.address, 
-    #     ETH_currency_Id,
-    #     {"from": gov}
-    # )
+    start = datetime.datetime.now()
+    strategy = Strategy.deploy(
+        yVault.address, 
+        nProxy.address, 
+        ETH_currency_Id,
+        {"from": gov}
+    )
 
     # tx = yVault.addStrategy(strategy.address, 10, 0, 2**256 - 1, 0, {"from":gov})
     # tx = strategy.harvest()

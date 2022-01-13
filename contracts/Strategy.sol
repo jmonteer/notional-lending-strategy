@@ -53,7 +53,10 @@ contract Strategy is BaseStrategy {
     uint256 private minTimeToMaturity = 0;
     // minimum amount of want to act on
     uint16 public minAmountWant;
+    // Initialize WETH interface
     IWETH public constant weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    // Constant necessary to accept ERC1155 fcash tokens (for migration purposes) 
+    bytes4 internal constant ERC1155_ACCEPTED = bytes4(keccak256("onERC1155Received(address,address,uint256,uint256,bytes)"));
 
     // Base for percentage calculations. BPS (10000 = 100%, 100 = 1%)
     uint256 private constant MAX_BPS = 10_000;
@@ -419,9 +422,48 @@ contract Strategy is BaseStrategy {
         return amountLiquidated;
     }
     
+    /*
+     * @notice
+     *  Internal function used to migrate all 'want' tokens and active Notional positions to a new strategy
+     * @param _newStrategy address where the contract of the new strategy is located
+     */
     function prepareMigration(address _newStrategy) internal override {
-        // fcash positions cannot be transferred between accounts
+        _checkPositionsAndWithdraw();
+        PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
 
+        uint256 _id = 0;
+        for(uint256 i = 0; i < _accountPortfolio.length; i++) {
+            _id = nProxy.encodeToId(
+                currencyID, 
+                uint40(_accountPortfolio[i].maturity), 
+                uint8(_accountPortfolio[i].assetType)
+                );
+            nProxy.safeTransferFrom(
+                address(this), 
+                _newStrategy,
+                _id, 
+                uint256(_accountPortfolio[i].notional),
+                ""
+                );
+        }
+
+        want.transfer(_newStrategy, balanceOfWant());
+        
+    }
+
+    /*
+     * @notice
+     *  Callback function needed to receive ERC1155 (fcash), not needed for the first startegy contract but 
+     * relevant for all the next ones
+     * @param _sender, address of the msg.sender
+     * @param _from, address of the contract sending the erc1155
+     * @_id, encoded id of the asset (fcash or liquidity token)
+     * @_amount, amount of assets tor receive
+     * _data, bytes calldata to perform extra actions after receiving the erc1155
+     * @return bytes4, constant accepting the erc1155
+     */
+    function onERC1155Received(address _sender, address _from, uint256 _id, uint256 _amount, bytes calldata _data) public returns(bytes4){
+        return ERC1155_ACCEPTED;
     }
 
     /*

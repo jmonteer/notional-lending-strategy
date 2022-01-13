@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Feel free to change the license, but this is what we use
 
-// Feel free to change this version of Solidity. We support >=0.6.0 <0.7.0;
 pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
 
+// Necessary interfaces to:
+// 1) interact with the Notional protocol
 import "../interfaces/notional/NotionalProxy.sol";
+// 2) Transact between WETH (Vault) and ETH (Notional)
 import "../interfaces/IWETH.sol";
 
 
@@ -23,6 +24,7 @@ import {
 
 import "@openzeppelin/contracts/math/Math.sol";
 
+// Import the necessary structs to send/ receive data from Notional
 import {
     BalanceActionWithTrades,
     AccountContext,
@@ -32,9 +34,10 @@ import {
     ETHRate
 } from "../interfaces/notional/Types.sol";
 
-// Import interfaces for many popular DeFi projects, or add your own!
-//import "../interfaces/<protocol>/<Interface>.sol";
-
+/*
+     * @notice
+     *  Yearn Strategy allocating vault's funds to a fixed rate lending market within the Notional protocol
+*/
 contract Strategy is BaseStrategy {
     using SafeERC20 for IERC20;
     using Address for address;
@@ -55,6 +58,16 @@ contract Strategy is BaseStrategy {
     // Base for percentage calculations. BPS (10000 = 100%, 100 = 1%)
     uint256 private constant MAX_BPS = 10_000;
 
+    /*
+     * @notice constructor for the contract, called at deployment
+     * @param _vault Address of the corresponding vault the contract reports to
+     * @param _nProxy Notional proxy used to interact with the protocol
+     * @param _currencyID Notional identifier of the currency (token) the strategy interacts with:
+     * 1 - ETH
+     * 2 - DAI
+     * 3 - USDC
+     * 4 - WBTC
+     */
     constructor(address _vault, NotionalProxy _nProxy, uint16 _currencyID) public BaseStrategy(_vault) {
         currencyID = _currencyID;
         nProxy = _nProxy;
@@ -73,20 +86,32 @@ contract Strategy is BaseStrategy {
     // For ETH based strategies
     receive() external payable {}
 
-    
+    /*
+     * @notice
+     *  Sweep function only callable by governance to be able to sweep any ETH assigned to the strategy's balance
+     */
     function sendETHToGovernance() external {
         _onlyGovernance();
         (bool sent, bytes memory data) = governance().call{value: address(this).balance}("");
         require(sent, "Failed to send Ether");
     }
 
-    // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
-
+    /*
+     * @notice
+     *  Getter function for the name of the strategy
+     * @return string, the name of the strategy
+     */
     function name() external view override returns (string memory) {
         // Add your own name here, suggestion e.g. "StrategyCreamYFI"
         return "StrategyNotionalLending";
     }
 
+    /*
+     * @notice
+     *  Function estimating the total assets under management of the strategy, whether realized (token balances
+     * of the contract) or unrealized (as Notional lending positions)
+     * @return uint256, value containing the total AUM valuation
+     */
     function estimatedTotalAssets() public view override returns (uint256) {
         // To estimate the assets under management of the strategy we add the want balance already 
         // in the contract and the current valuation of the non-matured positions (including the cost of)
@@ -98,6 +123,14 @@ contract Strategy is BaseStrategy {
         ;
     }
 
+    /*
+     * @notice
+     *  Accounting function preparing the reporting to the vault taking into acccount the standing debt
+     * @param _debtOutstanding, Debt still left to pay to the vault
+     * @return _profit, the amount of profits the strategy may have produced until now
+     * @return _loss, the amount of losses the strategy may have produced until now
+     * @return _debtPayment, the amount the strategy has been able to pay back to the vault
+     */
     function prepareReturn(uint256 _debtOutstanding)
         internal
         override
@@ -154,6 +187,12 @@ contract Strategy is BaseStrategy {
         }
     }
 
+    /*
+     * @notice
+     * Function re-allocating the available funds (present in the strategy's balance in the 'want' token)
+     * into new positions in Notional
+     * @param _debtOutstanding, Debt still left to pay to the vault
+     */
     function adjustPosition(uint256 _debtOutstanding) internal override {
         uint256 availableWantBalance = balanceOfWant();
         
@@ -206,6 +245,14 @@ contract Strategy is BaseStrategy {
         );
     }
 
+    /*
+     * @notice
+     *  Internal function encoding a trade parameter into a bytes32 variable needed for Notional
+     * @param _tradeType, Identification of the trade to perform, following the Notional classification in enum 'TradeActionType'
+     * @param _marketIndex, Market index in which to trade into
+     * @param _amount, fCash amount to trade
+     * @return bytes32 result, the encoded trade ready to be used in Notional's 'BatchTradeAction'
+     */
     function getTradeFrom(uint8 _tradeType, uint256 _marketIndex, uint256 _amount) internal returns (bytes32 result) {
         uint8 tradeType = uint8(_tradeType);
         uint8 marketIndex = uint8(_marketIndex);
@@ -222,6 +269,11 @@ contract Strategy is BaseStrategy {
         return result;
     }
     
+    /*
+     * @notice
+     *  Internal function to assess the unrealised P&L of the Notional's positions
+     * @return uint256 result, the encoded trade ready to be used in Notional's 'BatchTradeAction'
+     */
     function getUnrealisedPL() internal returns (uint256 _unrealisedProfit, uint256 _unrealisedLoss) {
         // Calculate assets. This includes profit and cost of closing current position. 
         // Due to cost of closing position, If called just after opening the position, assets < invested want
@@ -240,6 +292,13 @@ contract Strategy is BaseStrategy {
 
     }
 
+    /*
+     * @notice
+     *  Internal function liquidating enough Notional positions to liberate _amountNeeded 'want' tokens
+     * @param _amountNeeded, The total amount of tokens needed to pay the vault back
+     * @return uint256 _liquidatedAmount, Amount freed
+     * @return uint256 _loss, Losses incurred due to early closing of positions
+     */
     function liquidatePosition(uint256 _amountNeeded)
         internal
         override
@@ -348,6 +407,11 @@ contract Strategy is BaseStrategy {
         }
     }
 
+    /*
+     * @notice
+     *  Internal function used in emergency to close all active positions and liberate all assets
+     * @return uint256 amountLiquidated, the total amount liquidated
+     */
     function liquidateAllPositions() internal override returns (uint256) {
         
         (uint256 amountLiquidated, ) = liquidatePosition(estimatedTotalAssets());
@@ -357,8 +421,15 @@ contract Strategy is BaseStrategy {
     
     function prepareMigration(address _newStrategy) internal override {
         // fcash positions cannot be transferred between accounts
+
     }
 
+    /*
+     * @notice
+     *  Define protected tokens for the strategy to manage persistently that will not get converted back
+     * to 'want'
+     * @return address result, the address of the tokens to protect
+     */
     function protectedTokens()
         internal
         view
@@ -366,7 +437,7 @@ contract Strategy is BaseStrategy {
         returns (address[] memory)
     {}
 
-    /**
+    /*
      * @notice
      *  Provide an accurate conversion from `_amtInWei` (denominated in wei)
      *  to `want` (using the native decimal characteristics of `want`).
@@ -379,7 +450,7 @@ contract Strategy is BaseStrategy {
      *
      * @param _amtInWei The amount (in wei/1e-18 ETH) to convert to `want`
      * @return The amount in `want` of `_amtInEth` converted to `want`
-     **/
+     */
     function ethToWant(uint256 _amtInWei)
         public
         view
@@ -389,6 +460,13 @@ contract Strategy is BaseStrategy {
         return _fromETH(_amtInWei, address(want));
     }
 
+    /*
+     * @notice
+     *  Internal function exchanging between ETH to 'want'
+     * @param _amount, Amount to exchange
+     * @param asset, 'want' asset to exchange to
+     * @return uint256 result, the equivalent ETH amount in 'want' tokens
+     */
     function _fromETH(uint256 _amount, address asset)
         internal
         view
@@ -414,6 +492,11 @@ contract Strategy is BaseStrategy {
 
     // INTERNAL FUNCTIONS
 
+    /*
+     * @notice
+     *  Internal function used to check whether there are positions that have reached maturity and if so, 
+     * settle and withdraw them realizing the profits in the strategy's 'want' balance
+     */
     function _checkPositionsAndWithdraw() internal {
         // We check if there is anything to settle in the account's portfolio by checking the account's
         // nextSettleTime in the account context
@@ -438,6 +521,12 @@ contract Strategy is BaseStrategy {
 
     }
 
+    /*
+     * @notice
+     *  Loop through the strategy's positions and convert the fcash to current valuation in 'want', including the
+     * fees incurred by leaving the position early. Represents the NPV of the position today.
+     * @return uint256 _totalWantValue, the total amount of 'want' tokens of the strategy's positions
+     */
     function _getTotalValueFromPortfolio() internal view returns(uint256 _totalWantValue) {
         PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
         MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
@@ -465,11 +554,22 @@ contract Strategy is BaseStrategy {
     }
 
     // CALCS
+    /*
+     * @notice
+     *  Internal function getting the current 'want' balance of the strategy
+     * @return uint256 result, strategy's 'want' balance
+     */
     function balanceOfWant() internal view returns (uint256) {
         return want.balanceOf(address(this));
     }
 
-    // Get Market index fot a given market maturity to convert between cash and fcash
+    /*
+     * @notice
+     *  Get the market index of a current position to calculate the real cash valuation
+     * @param _maturity, Maturity of the position to value
+     * @param _activeMarkets, All current active markets for the currencyID
+     * @return uint256 result, market index of the position to value
+     */
     function _getMarketIndexForMaturity(
         uint256 _maturity, 
         MarketParameters[] memory _activeMarkets
@@ -486,6 +586,12 @@ contract Strategy is BaseStrategy {
         }
     }
 
+    /*
+     * @notice
+     *  Internal function calculating the market index with the shortest maturity that was at 
+     * least minAmountToMaturity seconds still 
+     * @return uint256 result, the minimum market index the strategy should be entering positions into
+     */
     function _getMinimumMarketIndex() internal view returns(uint256) {
         MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
         for(uint256 i = 0; i<_activeMarkets.length; i++) {
@@ -496,6 +602,18 @@ contract Strategy is BaseStrategy {
     } 
 
     // NOTIONAL FUNCTIONS
+    /*
+     * @notice
+     *  Internal function executing a 'batchBalanceAndTradeAction' within Notional to either Lend or Borrow
+     * @param actionType, Identification of the action to perform, following the Notional classification 
+     * in enum 'DepositActionType'
+     * @param withdrawAmountInternalPrecision, withdraw an amount of asset cash specified in Notional 
+     *  internal 8 decimal precision
+     * @param withdrawEntireCashBalance, whether to withdraw entire cash balance. Useful if there may be
+     * an unknown amount of asset cash residual left from trading
+     * @param redeemToUnderlying, whether to redeem asset cash to the underlying token on withdraw
+     * @param trades, array of bytes32 trades to perform
+     */
     function executeBalanceActionWithTrades(
         DepositActionType actionType,
         uint256 depositActionAmount,
@@ -523,6 +641,10 @@ contract Strategy is BaseStrategy {
         }
     }
 
+    /*
+     * @notice
+     *  Internal function to control access
+     */
     function _onlyGovernance() internal {
         require(msg.sender == governance());
     }

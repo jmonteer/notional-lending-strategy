@@ -27,20 +27,34 @@ def wait_half_until_settlement(next_settlement):
     return
 
 
-def whale_drop_rates(n_proxy_batch, whale, token, n_proxy_views, currencyID):
-    balance = accounts.at(whale, force=True).balance()
+def whale_drop_rates(n_proxy_batch, whale, token, n_proxy_views, currencyID, balance_threshold):
 
-    if (balance > 1000e18):
-        fcash_amount = n_proxy_views.getfCashAmountGivenCashAmount(currencyID, -500e8, 1, chain.time()+1)
+    balance = token.balanceOf(whale)
+    if(currencyID == 1):
+        balance = accounts.at(whale, force=True).balance()
+
+    if (balance > balance_threshold[0]):
+
+        fcash_amount = n_proxy_views.getfCashAmountGivenCashAmount(currencyID, balance_threshold[1],
+         1, 
+         chain.time()+5)
         trade = encode_abi_packed(
             ["uint8", "uint8", "uint88", "uint32", "uint120"], 
             [0, 1, fcash_amount, 0, 0]
         )
-        n_proxy_batch.batchBalanceAndTradeAction(whale, \
-        [(2, currencyID, 1000e18, 0, 1, 1,\
-            [trade])], \
-                {"from": whale,\
-                     "value":1000e18})
+        if(currencyID == 1):
+            n_proxy_batch.batchBalanceAndTradeAction(whale, \
+            [(2, currencyID, balance_threshold[0], 0, 1, 1,\
+                [trade])], \
+                    {"from": whale,\
+                        "value":balance_threshold[0]})
+        else:
+            token.approve(n_proxy_views.address, balance_threshold[0], {"from": whale})
+            n_proxy_batch.batchBalanceAndTradeAction(whale, \
+            [(2, currencyID, balance_threshold[0], 0, 1, 1,\
+                [trade])], \
+                    {"from": whale,\
+                        "value":0})
     else:
         raise("Whale does not have enough tokens")
 

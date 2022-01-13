@@ -89,13 +89,13 @@ token_addresses = {
 # TODO: uncomment those tokens you want to test as want
 @pytest.fixture(
     params=[
-        # 'WBTC', # WBTC
+        'WBTC', # WBTC
         # "YFI",  # YFI
         "WETH",  # WETH
         # 'LINK', # LINK
         # 'USDT', # USDT
-        # 'DAI', # DAI
-        # 'USDC', # USDC
+        'DAI', # DAI
+        'USDC', # USDC
     ],
     scope="session",
     autouse=True,
@@ -105,10 +105,21 @@ def token(request):
 
 currency_IDs = {
     "WETH": 1,
-    # "DAI": 2,  # DAI
-    # "USDC": 3,  # USDC
-    # "WBTC": 4
+    "DAI": 2,  # DAI
+    "USDC": 3,  # USDC
+    "WBTC": 4
 }
+
+thresholds = {
+    "WETH": (1000e18, -500e8),
+    "DAI": (50e24, -50e14),
+    "WBTC": (50e8, -50e8),
+    "USDC": (90e12, -90e14),
+}
+
+@pytest.fixture
+def balance_threshold(token):
+    yield thresholds[token.symbol()]
 
 @pytest.fixture
 def currencyID(token):
@@ -144,7 +155,7 @@ token_prices = {
 
 @pytest.fixture(autouse=True)
 def amount(token, token_whale, user):
-    # this will get the number of tokens (around $1m worth of token)
+    # this will get the number of tokens (around $100k worth of token)
     amillion = round(100_000 / token_prices[token.symbol()])
     amount = amillion * 10 ** token.decimals()
     # In order to get some funds for the token you are about to use,

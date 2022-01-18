@@ -8,16 +8,16 @@ import click
 def main():
     nProxy = Contract.from_explorer("0x1344A36A1B56144C3Bc62E7757377D288fDE0369")
 
-    actionContract = Contract.from_explorer(nProxy.BATCH_ACTION())
-    nProxy_batch = Contract.from_abi("BATCH", nProxy.address, actionContract.abi)
+    # actionContract = Contract.from_explorer(nProxy.BATCH_ACTION())
+    # nProxy_batch = Contract.from_abi("BATCH", nProxy.address, actionContract.abi)
 
-    accountContract = Contract.from_explorer(nProxy.ACCOUNT_ACTION())
-    nProxy_account = Contract.from_abi("ACCOUNT", nProxy.address, accountContract.abi)
+    # accountContract = Contract.from_explorer(nProxy.ACCOUNT_ACTION())
+    # nProxy_account = Contract.from_abi("ACCOUNT", nProxy.address, accountContract.abi)
 
-    viewsContract = Contract.from_explorer(nProxy.VIEWS())
-    nProxy_views = Contract.from_abi("VIEWS", nProxy.address, viewsContract.abi)
+    # viewsContract = Contract.from_explorer(nProxy.VIEWS())
+    # nProxy_views = Contract.from_abi("VIEWS", nProxy.address, viewsContract.abi)
 
-    whale = accounts.at("0x28C6c06298d514Db089934071355E5743bf21d60", force=True)
+    # whale = accounts.at("0x28C6c06298d514Db089934071355E5743bf21d60", force=True)
 
     # DAI_token_address = "0x6B175474E89094C44Da98b954EedeAC495271d0F"
     # cDAI_token_address = "0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643"
@@ -26,8 +26,8 @@ def main():
     # print("DAI currency Id is %d" % (DAI_currency_Id))
 
     # ETH_token_address = "0x0"
-    cETH_token_address = '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5'
-    ETH_currency_Id = nProxy_views.getCurrencyId(cETH_token_address)
+    # cETH_token_address = '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5'
+    # ETH_currency_Id = nProxy_views.getCurrencyId(cETH_token_address)
     # print("ETH currency Id is %d" % (ETH_currency_Id))
 
     gov = accounts.at("0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52", force=True)
@@ -39,7 +39,7 @@ def main():
     strategy = Strategy.deploy(
         yVault.address, 
         nProxy.address, 
-        ETH_currency_Id,
+        1,
         {"from": gov}
     )
 

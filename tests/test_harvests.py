@@ -47,22 +47,43 @@ def test_profitable_harvest(
     # check that estimatedTotalAssets estimates correctly
     assert pytest.approx(strategy.estimatedTotalAssets(), rel=RELATIVE_APPROX) == position_cash
     assert position_cash > amount
-    profit_amount = position_cash - amount
+    profit_amount = 0
+    loss_amount = 0
 
     before_pps = vault.pricePerShare()
     print("Vault assets 1: ", vault.totalAssets())
-    # Harvest 2: Realize profit
+    # Harvest 2: Harvest with unrealized and non-mature profits: should not change anything 
     chain.sleep(1)
     tx = strategy.harvest({"from": strategist})
-
+    
     checks.check_harvest_profit(tx, profit_amount, RELATIVE_APPROX)
+    checks.check_harvest_loss(tx, loss_amount, RELATIVE_APPROX)
+
+    # Update debt ratio to force liqudating positions
+    vault.updateStrategyDebtRatio(strategy, 0, {"from": vault.governance()})
+
+    # Harvest 3: Remove funds to pay the debt's vault - should remove a total of 'amount' between token and reported 
+    # loss
+    tx2 = strategy.harvest()
+
+    account = n_proxy_views.getAccount(strategy)
+
+    assert amount == (tx2.events["Harvested"]["loss"] + token.balanceOf(vault))
+    assert (token.balanceOf(vault) + account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS) > amount
+
+    # Harvest 3: wait until maturity to settle and withdraw profits
+    chain.sleep(account[0][0] - chain.time() + 1)
+    chain.mine(1)
+    account = n_proxy_views.getAccount(strategy)
+    tx3 = strategy.harvest()
+    assert tx3.events["Harvested"]["profit"] >= account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS
 
     chain.sleep(3600 * 6)  # 6 hrs needed for profits to unlock
     chain.mine(1)
-    profit = token.balanceOf(vault.address)  # Profits go to vault
+    balance = token.balanceOf(vault.address)  # Profits go to vault
     print("ETH Balance is ", vault.balance())
     print("Vault assets 2: ", vault.totalAssets())
-    assert pytest.approx(profit, rel=RELATIVE_APPROX) == profit_amount
+    assert balance >= amount
     assert vault.pricePerShare() > before_pps
 
 
@@ -104,7 +125,6 @@ def test_lossy_harvest(
 
     vault.updateStrategyDebtRatio(strategy, 0, {"from":vault.governance()})
     tx = strategy.harvest({"from": strategist})
-    print(tx.events["Harvested"])
     checks.check_harvest_loss(tx, loss_amount, RELATIVE_APPROX)
     chain.sleep(3600 * 6)  # 6 hrs needed for profits to unlock
     chain.mine(1)
@@ -156,14 +176,15 @@ def test_choppy_harvest(
     profit_amount = position_cash - vault.totalDebt()
     assert profit_amount > 0
     
+    realized_profit = 0
     tx = strategy.harvest({"from": strategist})
-    checks.check_harvest_profit(tx, profit_amount, RELATIVE_APPROX)
+    checks.check_harvest_profit(tx, realized_profit, RELATIVE_APPROX)
 
     # User will withdraw accepting losses
     chain.sleep(3600 * 6)  # 6 hrs needed for profits to unlock
     chain.mine(1)
     assert pytest.approx(vault.strategies(strategy)["totalLoss"], rel=RELATIVE_APPROX) == loss_amount
-    assert pytest.approx(vault.strategies(strategy)["totalGain"], rel=RELATIVE_APPROX) == profit_amount
+    assert pytest.approx(vault.strategies(strategy)["totalGain"], rel=RELATIVE_APPROX) == realized_profit
     vault.withdraw({"from": user})
 
 def test_maturity_harvest(
@@ -210,7 +231,7 @@ def test_maturity_harvest(
     assert pytest.approx(position_cash+token.balanceOf(strategy), rel=RELATIVE_APPROX) == totalAssets
     profit_amount = totalAssets - amount
     assert profit_amount > 0
-    n_proxy_implementation.initializeMarkets(currencyID, 0)
+    n_proxy_implementation.initializeMarkets(currencyID, 0, {"from": user})
     
     vault.updateStrategyDebtRatio(strategy, 0, {"from":vault.governance()})
     tx = strategy.harvest()

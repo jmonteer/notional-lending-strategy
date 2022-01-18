@@ -78,7 +78,7 @@ contract Strategy is BaseStrategy {
         (Token memory assetToken, Token memory underlying) = _nProxy.getCurrency(_currencyID);
         DECIMALS_DIFFERENCE = uint256(underlying.decimals).mul(MAX_BPS).div(uint256(assetToken.decimals));
         
-        // dev: currencyID is not correct
+        // Check whether the currency is set up right
         if (_currencyID == 1) {
             require(address(0) == underlying.tokenAddress); 
         } else {
@@ -134,6 +134,8 @@ contract Strategy is BaseStrategy {
      * @return _loss, the amount of losses the strategy may have produced until now
      * @return _debtPayment, the amount the strategy has been able to pay back to the vault
      */
+     event numbers(string name, uint256 number);
+     event bytes_(string name, bytes32 trade);
     function prepareReturn(uint256 _debtOutstanding)
         internal
         override
@@ -148,9 +150,18 @@ contract Strategy is BaseStrategy {
 
         // We only need profit for decision making
         (_profit, ) = getUnrealisedPL();
-
         // free funds to repay debt + profit to the strategy
         uint256 wantBalance = balanceOfWant();
+
+        // If we cannot realize the profit using want balance, don't report a profit to avoid
+        // closing active positions before maturity
+        emit numbers("prepare_profit", _profit);
+        if (_profit > wantBalance) {
+            _profit = 0;
+        }
+        emit numbers("prepare_wantBal", wantBalance);
+        emit numbers("prepare_profit", _profit);
+        emit numbers("prepare_debtOutstanding", _debtOutstanding);
         uint256 amountRequired = _debtOutstanding.add(_profit);
         if(amountRequired > wantBalance) {
             // we need to free funds
@@ -316,24 +327,26 @@ contract Strategy is BaseStrategy {
         
         // Get current position's P&L
         (, uint256 unrealisedLosses) = getUnrealisedPL();
-        
+        emit numbers("liqPos_unrLosses", unrealisedLosses);
         // We only need to withdraw what we don't currently have
         uint256 amountToLiquidate = _amountNeeded.sub(wantBalance);
+        emit numbers("liqPos_amountToLiquidate", amountToLiquidate);
         
         // Losses are realised IFF we withdraw from the position, as they will come from breaking our "promise"
         // of lending at a certain %
         // The strategy will only realise losses proportional to the amount we are liquidating
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         uint256 lossesToBeRealised = unrealisedLosses.mul(amountToLiquidate).div(totalDebt.sub(wantBalance));
+        emit numbers("liqPos_lossesToBeRealised", lossesToBeRealised);
         
         // Due to how Notional works, we need to substract losses from the amount to liquidate
         // If we don't do this and withdraw a small enough % of position, we will not incur in losses,
         // leaving them for the future withdrawals (which is bad! those who withdraw should take the losses)
         amountToLiquidate = amountToLiquidate.sub(lossesToBeRealised);
+        emit numbers("liqPos_amountToLiquidate", amountToLiquidate);
 
         // Retrieve info of portfolio (summary of our position/s)
         PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
-        MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
         // The maximum amount of trades we are doing is the number of terms (aka markets) we are in
         bytes32[] memory trades = new bytes32[](_accountPortfolio.length);
 
@@ -344,8 +357,7 @@ contract Strategy is BaseStrategy {
         for(uint256 i = 0; i < _accountPortfolio.length; i++) {
             if (remainingAmount > 0) {
                 uint256 _marketIndex = _getMarketIndexForMaturity(
-                    _accountPortfolio[i].maturity,
-                    _activeMarkets
+                    _accountPortfolio[i].maturity
                 );
                 // Retrieve size of position in this market (underlyingInternalNotation)
                 (, int256 underlyingInternalNotation) = nProxy.getCashAmountGivenfCashAmount(
@@ -354,10 +366,10 @@ contract Strategy is BaseStrategy {
                     _marketIndex,
                     block.timestamp
                 );
-                // ADjust for decimals (Notional uses 8 decimals regardless of underlying)
+                // Adjust for decimals (Notional uses 8 decimals regardless of underlying)
                 uint256 underlyingPosition = uint256(underlyingInternalNotation).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
                 // If we can withdraw what we need from this market, we do and stop iterating over markets
-                // If we can, we create the trade to withdraw maximum amount and try in the next market / term
+                // If we can't, we create the trade to withdraw maximum amount and try in the next market / term
                 if(underlyingPosition > remainingAmount) {
                     
                     int256 fCashAmountToTrade = -nProxy.getfCashAmountGivenCashAmount(
@@ -366,11 +378,15 @@ contract Strategy is BaseStrategy {
                         _marketIndex, 
                         block.timestamp
                         );
-
+                    emit numbers("liqPos_remainingAmount", remainingAmount);
+                    emit numbers("liqPos_amountfCash", (remainingAmount.mul(MAX_BPS).div(DECIMALS_DIFFERENCE)));
+                    emit numbers("liqPos_amountfCash", (remainingAmount.mul(MAX_BPS).div(DECIMALS_DIFFERENCE) + 1));
+                    emit numbers("liqPos_amountfCash", uint256(fCashAmountToTrade));
+                    emit numbers("liqPos_amountfCash", _marketIndex);
                     trades[i] = getTradeFrom(1, _marketIndex, 
                                             uint256(fCashAmountToTrade)
-                                            //  remainingAmount.mul(uint256(_accountPortfolio[i].notional)).div(underlyingPosition)
                                             );
+                    emit bytes_("liqPos_trade", trades[i]);
                     remainingAmount = 0;
                     break;
                 } else {
@@ -400,11 +416,14 @@ contract Strategy is BaseStrategy {
 
         // Assess result 
         uint256 totalAssets = balanceOfWant();
-        
+        emit numbers("liqPosition_amountNeeded", _amountNeeded);
+        emit numbers("liqPosition_totalAssets", totalAssets);
         if (_amountNeeded > totalAssets) {
             _liquidatedAmount = totalAssets;
             // _loss should be equal to lossesToBeRealised ! 
             _loss = _amountNeeded.sub(totalAssets);
+            emit numbers("liqPosition_loss", _loss);
+            
         } else {
             _liquidatedAmount = _amountNeeded;
         }
@@ -447,7 +466,7 @@ contract Strategy is BaseStrategy {
                 );
         }
 
-        want.transfer(_newStrategy, balanceOfWant());
+        // want.transfer(_newStrategy, balanceOfWant());
         
     }
 
@@ -613,9 +632,9 @@ contract Strategy is BaseStrategy {
      * @return uint256 result, market index of the position to value
      */
     function _getMarketIndexForMaturity(
-        uint256 _maturity, 
-        MarketParameters[] memory _activeMarkets
+        uint256 _maturity
     ) internal view returns(uint256) {
+        MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
         bool success = false;
         for(uint256 j=0; j<_activeMarkets.length; j++){
             if(_maturity == _activeMarkets[j].maturity) {

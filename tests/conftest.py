@@ -1,6 +1,6 @@
 import pytest
 from brownie import config
-from brownie import Contract
+from brownie import Contract, interface
 
 # Function scoped isolation fixture to enable xdist.
 # Snapshots the chain before each test and reverts after test completion.
@@ -72,8 +72,8 @@ def n_proxy_account(n_proxy):
     yield Contract.from_abi("ACCOUNT", n_proxy.address, account_contract.abi)
 
 @pytest.fixture
-def n_proxy_implementation(NotionalImplementation, n_proxy, user):
-    yield NotionalImplementation.deploy(n_proxy.address, {"from":user})
+def n_proxy_implementation(n_proxy):
+    yield interface.NotionalProxy(n_proxy.address)
 
 
 token_addresses = {
@@ -89,13 +89,13 @@ token_addresses = {
 # TODO: uncomment those tokens you want to test as want
 @pytest.fixture(
     params=[
-        'WBTC', # WBTC
+        # 'WBTC', # WBTC
         # "YFI",  # YFI
-        "WETH",  # WETH
+        # "WETH",  # WETH
         # 'LINK', # LINK
         # 'USDT', # USDT
         'DAI', # DAI
-        'USDC', # USDC
+        # 'USDC', # USDC
     ],
     scope="session",
     autouse=True,

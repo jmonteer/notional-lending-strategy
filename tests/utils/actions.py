@@ -27,7 +27,7 @@ def wait_half_until_settlement(next_settlement):
     return
 
 
-def whale_drop_rates(n_proxy_batch, whale, token, n_proxy_views, currencyID, balance_threshold):
+def whale_drop_rates(n_proxy_batch, whale, token, n_proxy_views, currencyID, balance_threshold, market_index):
 
     balance = token.balanceOf(whale)
     if(currencyID == 1):
@@ -36,11 +36,11 @@ def whale_drop_rates(n_proxy_batch, whale, token, n_proxy_views, currencyID, bal
     if (balance > balance_threshold[0]):
 
         fcash_amount = n_proxy_views.getfCashAmountGivenCashAmount(currencyID, balance_threshold[1],
-         1, 
+         market_index, 
          chain.time()+5)
         trade = encode_abi_packed(
             ["uint8", "uint8", "uint88", "uint32", "uint120"], 
-            [0, 1, fcash_amount, 0, 0]
+            [0, market_index, fcash_amount, 0, 0]
         )
         if(currencyID == 1):
             n_proxy_batch.batchBalanceAndTradeAction(whale, \
@@ -60,7 +60,7 @@ def whale_drop_rates(n_proxy_batch, whale, token, n_proxy_views, currencyID, bal
 
     return
 
-def whale_exit(n_proxy_batch, whale, n_proxy_views, currencyID):
+def whale_exit(n_proxy_batch, whale, n_proxy_views, currencyID, market_index):
     fcash_position = n_proxy_views.getAccount(whale)[2][0][3]
     trade = encode_abi_packed(
             ["uint8", "uint8", "uint88", "uint32", "uint120"], 
@@ -84,3 +84,11 @@ def first_deposit_and_harvest(
     strategy.harvest({"from": gov})
     utils.sleep()
     assert pytest.approx(strategy.estimatedTotalAssets(), rel=RELATIVE_APPROX) == amount
+
+def initialize_intermediary_markets(n_proxy_views, currencyID, n_proxy_implementation, user, next_settlement):
+    if next_settlement - chain.time() > 86400 * 90:
+        for (i, market) in enumerate(n_proxy_views.getActiveMarkets(currencyID)):
+            if market[1] < next_settlement:
+                chain.sleep(market[1] - chain.time() + 1)
+                chain.mine(1)
+                n_proxy_implementation.initializeMarkets(currencyID, 0, {"from": user})

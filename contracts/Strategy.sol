@@ -49,6 +49,8 @@ contract Strategy is BaseStrategy {
     uint16 public immutable currencyID; 
     // Difference of decimals between Notional system (8) and want
     uint256 public immutable DECIMALS_DIFFERENCE;
+    // Scaling factor for entering positions as the fcash estimations have rounding errors
+    uint256 internal constant FCASH_SCALING = 0;
     // minimum maturity for the market to enter
     uint256 private minTimeToMaturity = 0;
     // minimum amount of want to act on
@@ -57,9 +59,12 @@ contract Strategy is BaseStrategy {
     IWETH public constant weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     // Constant necessary to accept ERC1155 fcash tokens (for migration purposes) 
     bytes4 internal constant ERC1155_ACCEPTED = bytes4(keccak256("onERC1155Received(address,address,uint256,uint256,bytes)"));
-
+    // To control when positions should be liquidated before maturity or not (and thus incur in losses)
+    bool internal toggleRealizeLosses;
     // Base for percentage calculations. BPS (10000 = 100%, 100 = 1%)
     uint256 private constant MAX_BPS = 10_000;
+    // Current maturity invested
+    uint256 private maturity;
 
     /*
      * @notice constructor for the contract, called at deployment
@@ -78,6 +83,9 @@ contract Strategy is BaseStrategy {
         (Token memory assetToken, Token memory underlying) = _nProxy.getCurrency(_currencyID);
         DECIMALS_DIFFERENCE = uint256(underlying.decimals).mul(MAX_BPS).div(uint256(assetToken.decimals));
         
+        // By default do not realize losses
+        toggleRealizeLosses = false;
+
         // Check whether the currency is set up right
         if (_currencyID == 1) {
             require(address(0) == underlying.tokenAddress); 
@@ -93,8 +101,7 @@ contract Strategy is BaseStrategy {
      * @notice
      *  Sweep function only callable by governance to be able to sweep any ETH assigned to the strategy's balance
      */
-    function sendETHToGovernance() external {
-        _onlyGovernance();
+    function sendETHToGovernance() external onlyGovernance {
         (bool sent, bytes memory data) = governance().call{value: address(this).balance}("");
         require(sent, "Failed to send Ether");
     }
@@ -107,6 +114,51 @@ contract Strategy is BaseStrategy {
     function name() external view override returns (string memory) {
         // Add your own name here, suggestion e.g. "StrategyCreamYFI"
         return "StrategyNotionalLending";
+    }
+    
+    /*
+     * @notice
+     *  Getter function for the current invested maturity
+     * @return uint256, current maturity we are invested in
+     */
+    function getMaturity() external view onlyGovernance returns(uint256) {
+        return maturity;
+    }
+
+    /*
+     * @notice
+     *  Getter function for the toggle defining whether to realize losses or not
+     * @return bool, current toggleRealizeLosses state variable
+     */
+    function getToggleRealizeLosses() external view returns(bool) {
+        return toggleRealizeLosses;
+    }
+
+    /*
+     * @notice
+     *  Setter function for the toggle defining whether to realize losses or not
+     * @param _newToggle, new booelan value for the toggle
+     */
+    function setToggleRealizeLosses(bool _newToggle) external onlyGovernance {
+        toggleRealizeLosses = _newToggle;
+    }
+    
+    /*
+     * @notice
+     *  Getter function for the minimum time to maturity to invest into
+     * @return uint256, current minTimeToMaturity state variable
+     */
+    function getMinTimeToMaturity() external view returns(uint256) {
+        return minTimeToMaturity;
+    }
+
+    /*
+     * @notice
+     *  Setter function for the minimum time to maturity to invest into, accesible only to governance
+     * @param _newTime, new minimum time to maturity to invest into
+     */
+    function setMinTimeToMaturity(uint256 _newTime) external onlyGovernance {
+        minTimeToMaturity = _newTime;
     }
 
     /*
@@ -134,7 +186,6 @@ contract Strategy is BaseStrategy {
      * @return _loss, the amount of losses the strategy may have produced until now
      * @return _debtPayment, the amount the strategy has been able to pay back to the vault
      */
-     
     function prepareReturn(uint256 _debtOutstanding)
         internal
         override
@@ -151,7 +202,7 @@ contract Strategy is BaseStrategy {
         (_profit, ) = getUnrealisedPL();
         // free funds to repay debt + profit to the strategy
         uint256 wantBalance = balanceOfWant();
-
+        
         // If we cannot realize the profit using want balance, don't report a profit to avoid
         // closing active positions before maturity
         if (_profit > wantBalance) {
@@ -168,7 +219,7 @@ contract Strategy is BaseStrategy {
             
             if(amountAvailable >= amountRequired) {
                 _debtPayment = _debtOutstanding;
-            // profit remains unchanged unless there is not enough to pay it
+                // profit remains unchanged unless there is not enough to pay it
                 if(amountRequired.sub(_debtPayment) < _profit) {
                     _profit = amountRequired.sub(_debtPayment);
                 }
@@ -215,15 +266,22 @@ contract Strategy is BaseStrategy {
         
         // gas savings
         uint16 _currencyID = currencyID;
+        uint256 _maturity = maturity;
+
+        // Use the market index with the shortest maturity
+        (uint256 minMarketIndex, uint256 minMarketMaturity) = _getMinimumMarketIndex();
+        // If the new position enters a different market than the current maturity, roll the current position into
+        // the next maturity market
+        if(minMarketMaturity > _maturity && _maturity > 0) {
+            availableWantBalance += _rollOverTrade(_maturity);
+        }
+
         if (_currencyID == 1) {
             // Only necessary for wETH/ ETH pair
             weth.withdraw(availableWantBalance);
         } else {
             want.approve(address(nProxy), availableWantBalance);
         }
-
-        // Use the market index with the shortest maturity
-        uint256 minMarketIndex = _getMinimumMarketIndex();
         // NOTE: May revert if the availableWantBalance is too high and interest rates get to < 0
         int256 fCashAmountToTrade = nProxy.getfCashAmountGivenCashAmount(
             _currencyID, 
@@ -252,6 +310,7 @@ contract Strategy is BaseStrategy {
             true,
             trades
         );
+        maturity = minMarketMaturity;
     }
 
     /*
@@ -283,7 +342,7 @@ contract Strategy is BaseStrategy {
      *  Internal function to assess the unrealised P&L of the Notional's positions
      * @return uint256 result, the encoded trade ready to be used in Notional's 'BatchTradeAction'
      */
-    function getUnrealisedPL() internal returns (uint256 _unrealisedProfit, uint256 _unrealisedLoss) {
+    function getUnrealisedPL() internal view returns (uint256 _unrealisedProfit, uint256 _unrealisedLoss) {
         // Calculate assets. This includes profit and cost of closing current position. 
         // Due to cost of closing position, If called just after opening the position, assets < invested want
         uint256 totalAssets = estimatedTotalAssets();
@@ -331,6 +390,11 @@ contract Strategy is BaseStrategy {
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         uint256 lossesToBeRealised = unrealisedLosses.mul(amountToLiquidate).div(totalDebt.sub(wantBalance));
         
+        // If the toggle to realize losses is off, return immediately
+        if(!toggleRealizeLosses) {
+            return (0, 0);
+        }
+
         // Due to how Notional works, we need to substract losses from the amount to liquidate
         // If we don't do this and withdraw a small enough % of position, we will not incur in losses,
         // leaving them for the future withdrawals (which is bad! those who withdraw should take the losses)
@@ -345,7 +409,8 @@ contract Strategy is BaseStrategy {
         // This shouldn't happen in the basic strategy (as we will only lend to the shortest term)
         uint256 remainingAmount = amountToLiquidate;
         // The following for-loop creates the list of required trades to get the amountRequired
-        for(uint256 i = 0; i < _accountPortfolio.length; i++) {
+        uint256 tradesToExecute = 0;
+        for(uint256 i; i < _accountPortfolio.length; i++) {
             if (remainingAmount > 0) {
                 uint256 _marketIndex = _getMarketIndexForMaturity(
                     _accountPortfolio[i].maturity
@@ -372,16 +437,26 @@ contract Strategy is BaseStrategy {
                     trades[i] = getTradeFrom(1, _marketIndex, 
                                             uint256(fCashAmountToTrade)
                                             );
+                    tradesToExecute++;
                     remainingAmount = 0;
                     break;
                 } else {
                     trades[i] = getTradeFrom(1, _marketIndex, uint256(_accountPortfolio[i].notional));
+                    tradesToExecute++;
                     remainingAmount -= underlyingPosition;
+                    maturity = 0;
                 }
             }
         }
         // NOTE: if for some reason we reach this with remainingAmount > 0, we will report losses !
         // this makes sense because means we have iterated over all markets and haven't been able to withdraw
+
+        // As we did not know the number of trades we needed to make, we adjust the array to only include
+        // non-empty trades (reverts otherwise)
+        bytes32[] memory final_trades = new bytes32[](tradesToExecute);
+        for (uint256 j=0; j<tradesToExecute; j++) {
+            final_trades[j] = trades[j];
+        }
 
         // Execute previously calculated trades
         // We won't deposit anything (we are withdrawing) and we signal that we want the underlying to hit the strategy (instead of remaining in our Notional account)
@@ -391,7 +466,7 @@ contract Strategy is BaseStrategy {
             0, 
             true,
             true,
-            trades
+            final_trades
         );
 
         if (currencyID == 1) {
@@ -409,6 +484,9 @@ contract Strategy is BaseStrategy {
         } else {
             _liquidatedAmount = _amountNeeded;
         }
+
+        // Re-set the toggle to false
+        toggleRealizeLosses = false;
     }
 
     /*
@@ -634,12 +712,13 @@ contract Strategy is BaseStrategy {
      *  Internal function calculating the market index with the shortest maturity that was at 
      * least minAmountToMaturity seconds still 
      * @return uint256 result, the minimum market index the strategy should be entering positions into
+     * @return uint256 maturity, the minimum market index's maturity the strategy should be entering positions into
      */
-    function _getMinimumMarketIndex() internal view returns(uint256) {
+    function _getMinimumMarketIndex() internal view returns(uint256, uint256) {
         MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
         for(uint256 i = 0; i<_activeMarkets.length; i++) {
             if (_activeMarkets[i].maturity - block.timestamp >= minTimeToMaturity) {
-                return i+1;
+                return (i+1, uint256(_activeMarkets[i].maturity));
             }
         }
     } 
@@ -686,10 +765,30 @@ contract Strategy is BaseStrategy {
 
     /*
      * @notice
-     *  Internal function to control access
+     *  Internal function Closing a current non-mature position to re-invest the amount into a new 
+     * higher maturity market
+     * @param _currentMaturity, current maturity the strategy is invested in
+     * @return uint256, liberated amount, now existing in want balance to add up to the availableWantBalance
+     * to trade into in adjustPosition()
      */
-    function _onlyGovernance() internal {
-        require(msg.sender == governance());
+    function _rollOverTrade(uint256 _currentMaturity) internal returns(uint256) {
+        uint256 prevBalance = balanceOfWant();
+        PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
+        uint256 _currentIndex = _getMarketIndexForMaturity(_currentMaturity);
+        
+        bytes32[] memory rollTrade = new bytes32[](1);
+        rollTrade[0] = getTradeFrom(1, _currentIndex, uint256(_accountPortfolio[0].notional));
+        executeBalanceActionWithTrades(
+            DepositActionType.None, 
+            0,
+            0, 
+            true,
+            true,
+            rollTrade
+        );
+
+        
+        return (balanceOfWant() - prevBalance);
     }
 
 }

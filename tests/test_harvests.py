@@ -4,18 +4,17 @@ import pytest
 # tests harvesting a strategy that returns profits correctly
 def test_profitable_harvest(
     chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX, MAX_BPS,
-    n_proxy_views, n_proxy_batch
+    n_proxy_views, n_proxy_batch, currencyID, n_proxy_implementation, gov
 ):
     # Deposit to the vault
     actions.user_deposit(user, vault, token, amount)
-    
+    min_market_index = utils.get_min_market_index(strategy, currencyID, n_proxy_views)
     amount_fcash = n_proxy_views.getfCashAmountGivenCashAmount(
         strategy.currencyID(),
         - amount / strategy.DECIMALS_DIFFERENCE() * MAX_BPS,
-        1,
+        min_market_index,
         chain.time()+5
         )
-
     # Harvest 1: Send funds through the strategy
     chain.sleep(1)
     strategy.harvest({"from": strategist})
@@ -28,7 +27,7 @@ def test_profitable_harvest(
     position_cash = n_proxy_views.getCashAmountGivenfCashAmount(
         strategy.currencyID(),
         - amount_fcash,
-        1,
+        min_market_index,
         chain.time()+1
         )[1] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS
     total_assets = strategy.estimatedTotalAssets()
@@ -37,6 +36,8 @@ def test_profitable_harvest(
     
     # Add some code before harvest #2 to simulate earning yield
     actions.wait_until_settlement(next_settlement)
+    checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
+
     position_cash = n_proxy_views.getCashAmountGivenfCashAmount(
         strategy.currencyID(),
         - amount_fcash,
@@ -54,6 +55,7 @@ def test_profitable_harvest(
     print("Vault assets 1: ", vault.totalAssets())
     # Harvest 2: Harvest with unrealized and non-mature profits: should not change anything 
     chain.sleep(1)
+    
     tx = strategy.harvest({"from": strategist})
     
     checks.check_harvest_profit(tx, profit_amount, RELATIVE_APPROX)
@@ -64,17 +66,23 @@ def test_profitable_harvest(
 
     # Harvest 3: Remove funds to pay the debt's vault - should remove a total of 'amount' between token and reported 
     # loss
+    strategy.setToggleRealizeLosses(True, {"from":gov})
     tx2 = strategy.harvest()
 
     account = n_proxy_views.getAccount(strategy)
 
     assert amount == (tx2.events["Harvested"]["loss"] + token.balanceOf(vault))
     assert (token.balanceOf(vault) + account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS) > amount
+    
 
     # Harvest 3: wait until maturity to settle and withdraw profits
+    actions.initialize_intermediary_markets(n_proxy_views, currencyID, n_proxy_implementation, user, account[0][0])
     chain.sleep(account[0][0] - chain.time() + 1)
     chain.mine(1)
+    checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
+
     account = n_proxy_views.getAccount(strategy)
+    
     tx3 = strategy.harvest()
     assert tx3.events["Harvested"]["profit"] >= account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS
 
@@ -90,17 +98,18 @@ def test_profitable_harvest(
 # # tests harvesting a strategy that reports losses
 def test_lossy_harvest(
     chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX, MAX_BPS,
-    n_proxy_views, n_proxy_batch, token_whale, currencyID, balance_threshold
+    n_proxy_views, n_proxy_batch, token_whale, currencyID, balance_threshold, n_proxy_implementation, gov
 ):
     # Deposit to the vault
     actions.user_deposit(user, vault, token, amount)
-
-    actions.whale_drop_rates(n_proxy_batch, token_whale, token, n_proxy_views, currencyID, balance_threshold)
+    min_market_index = utils.get_min_market_index(strategy, currencyID, n_proxy_views)
+    
+    actions.whale_drop_rates(n_proxy_batch, token_whale, token, n_proxy_views, currencyID, balance_threshold, min_market_index)
 
     amount_fcash = n_proxy_views.getfCashAmountGivenCashAmount(
         strategy.currencyID(),
         - amount / strategy.DECIMALS_DIFFERENCE() * MAX_BPS,
-        1,
+        min_market_index,
         chain.time()+5
         )
 
@@ -114,7 +123,9 @@ def test_lossy_harvest(
     assert pytest.approx(account[2][0][3], rel=RELATIVE_APPROX) == amount_fcash
 
     actions.wait_half_until_settlement(next_settlement)
-    actions.whale_exit(n_proxy_batch, token_whale, n_proxy_views, currencyID)
+    checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
+    
+    actions.whale_exit(n_proxy_batch, token_whale, n_proxy_views, currencyID, min_market_index)
     print("Amount: ", amount)
     position_cash = strategy.estimatedTotalAssets()
     loss_amount = amount - position_cash
@@ -124,6 +135,7 @@ def test_lossy_harvest(
     chain.sleep(1)
 
     vault.updateStrategyDebtRatio(strategy, 0, {"from":vault.governance()})
+    strategy.setToggleRealizeLosses(True, {"from":gov})
     tx = strategy.harvest({"from": strategist})
     checks.check_harvest_loss(tx, loss_amount, RELATIVE_APPROX)
     chain.sleep(3600 * 6)  # 6 hrs needed for profits to unlock
@@ -139,13 +151,14 @@ def test_lossy_harvest(
 def test_choppy_harvest(
     chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX, MAX_BPS,
     n_proxy_views, n_proxy_batch, token_whale, currencyID, n_proxy_account, n_proxy_implementation,
-    balance_threshold
+    balance_threshold, gov
 ):
     # Deposit to the vault
     # assert token.balanceOf(user) == amount + 5e20 - 3
     actions.user_deposit(user, vault, token, amount)
+    min_market_index = utils.get_min_market_index(strategy, currencyID, n_proxy_views)
 
-    actions.whale_drop_rates(n_proxy_batch, token_whale, token, n_proxy_views, currencyID, balance_threshold)
+    actions.whale_drop_rates(n_proxy_batch, token_whale, token, n_proxy_views, currencyID, balance_threshold, min_market_index)
 
     # Harvest 1: Send funds through the strategy
     chain.sleep(1)
@@ -155,7 +168,8 @@ def test_choppy_harvest(
     next_settlement = account[0][0]
 
     actions.wait_half_until_settlement(next_settlement)
-    actions.whale_exit(n_proxy_batch, token_whale, n_proxy_views, currencyID)
+    checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
+    actions.whale_exit(n_proxy_batch, token_whale, n_proxy_views, currencyID, min_market_index)
 
     print("TA: ", strategy.estimatedTotalAssets())
 
@@ -165,12 +179,15 @@ def test_choppy_harvest(
     loss_amount = (amount - position_cash) / 2
     assert loss_amount > 0
     vault.updateStrategyDebtRatio(strategy, 5_000, {"from":vault.governance()})
+    strategy.setToggleRealizeLosses(True, {"from":gov})
     tx = strategy.harvest({"from": strategist})
 
     # Harvest 3: Realize profit on the rest of the position
     print("TA 1: ", strategy.estimatedTotalAssets())
+    actions.initialize_intermediary_markets(n_proxy_views, currencyID, n_proxy_implementation, user, account[0][0])
     chain.sleep(next_settlement - chain.time() - 100)
     chain.mine(1)
+    checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
     print("TA 2: ", strategy.estimatedTotalAssets())
     position_cash = strategy.estimatedTotalAssets()
     profit_amount = position_cash - vault.totalDebt()
@@ -194,11 +211,12 @@ def test_maturity_harvest(
 ):
     # Deposit to the vault
     actions.user_deposit(user, vault, token, amount)
-
+    min_market_index = utils.get_min_market_index(strategy, currencyID, n_proxy_views)
+    
     amount_fcash = n_proxy_views.getfCashAmountGivenCashAmount(
         strategy.currencyID(),
         - amount / strategy.DECIMALS_DIFFERENCE() * MAX_BPS,
-        1,
+        min_market_index,
         chain.time()+5
         )
     
@@ -214,7 +232,7 @@ def test_maturity_harvest(
     position_cash = n_proxy_views.getCashAmountGivenfCashAmount(
         strategy.currencyID(),
         - amount_fcash,
-        1,
+        min_market_index,
         chain.time()+1
         )[1] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS
     total_assets = strategy.estimatedTotalAssets()
@@ -223,15 +241,17 @@ def test_maturity_harvest(
     
     # Add some code before harvest #2 to simulate earning yield
     actions.wait_until_settlement(next_settlement)
+    actions.initialize_intermediary_markets(n_proxy_views, currencyID, n_proxy_implementation, user, account[0][0])
+    checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
     chain.sleep(next_settlement - chain.time() + 1)
     chain.mine(1)
+    checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
     totalAssets = strategy.estimatedTotalAssets()
     position_cash = account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS
 
     assert pytest.approx(position_cash+token.balanceOf(strategy), rel=RELATIVE_APPROX) == totalAssets
     profit_amount = totalAssets - amount
     assert profit_amount > 0
-    n_proxy_implementation.initializeMarkets(currencyID, 0, {"from": user})
     
     vault.updateStrategyDebtRatio(strategy, 0, {"from":vault.governance()})
     tx = strategy.harvest()
@@ -241,7 +261,7 @@ def test_maturity_harvest(
     chain.mine(1)
     assert vault.strategies(strategy)["totalLoss"] == 0
     assert vault.strategies(strategy)["totalGain"] >= profit_amount
-    # assert 0==1
+    
     vault.withdraw({"from": user})
 
     

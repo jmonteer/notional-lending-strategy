@@ -90,12 +90,9 @@ token_addresses = {
 @pytest.fixture(
     params=[
         # 'WBTC', # WBTC
-        # "YFI",  # YFI
         # "WETH",  # WETH
-        # 'LINK', # LINK
-        # 'USDT', # USDT
-        'DAI', # DAI
-        # 'USDC', # USDC
+        # 'DAI', # DAI
+        'USDC', # USDC
     ],
     scope="session",
     autouse=True,
@@ -114,7 +111,7 @@ thresholds = {
     "WETH": (1000e18, -500e8),
     "DAI": (50e24, -50e14),
     "WBTC": (50e8, -50e8),
-    "USDC": (90e12, -90e14),
+    "USDC": (60e12, -60e14),
 }
 
 @pytest.fixture
@@ -206,6 +203,7 @@ def strategy(strategist, keeper, vault, Strategy, gov, notional_proxy, currencyI
     strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID)
     strategy.setKeeper(keeper)
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 0, {"from": gov})
+    # strategy.setMinTimeToMaturity(1 * 30 * 24 * 60 * 60, {"from": vault.governance()})
     yield strategy
 
 

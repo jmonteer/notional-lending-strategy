@@ -169,10 +169,9 @@ contract Strategy is BaseStrategy {
      */
     function estimatedTotalAssets() public view override returns (uint256) {
         // To estimate the assets under management of the strategy we add the want balance already 
-        // in the contract and the current valuation of the non-matured positions (including the cost of)
+        // in the contract and the current valuation of the matured and non-matured positions (including the cost of)
         // closing the position early
-        // This function is supposed to be called after _checkPositionsAndWithdraw() so the matured positions 
-        // are supposed to already be included in the contract's want balance
+
         return balanceOfWant()
             .add(_getTotalValueFromPortfolio())
         ;
@@ -316,6 +315,7 @@ contract Strategy is BaseStrategy {
             true,
             trades
         );
+
         maturity = minMarketMaturity;
     }
 
@@ -470,11 +470,6 @@ contract Strategy is BaseStrategy {
             final_trades
         );
 
-        if (currencyID == 1) {
-            // Only necessary for wETH/ ETH pair
-            weth.deposit{value: address(this).balance}();
-        }
-
         // Assess result 
         uint256 totalAssets = balanceOfWant();
         if (_amountNeeded > totalAssets) {
@@ -526,8 +521,6 @@ contract Strategy is BaseStrategy {
                 ""
                 );
         }
-
-        // want.transfer(_newStrategy, balanceOfWant());
         
     }
 
@@ -760,6 +753,7 @@ contract Strategy is BaseStrategy {
 
         if (_currencyID == 1) {
             nProxy.batchBalanceAndTradeAction{value: depositActionAmount}(address(this), actions);
+            weth.deposit{value: address(this).balance}();
         } else {
             nProxy.batchBalanceAndTradeAction(address(this), actions);
         }
@@ -788,10 +782,6 @@ contract Strategy is BaseStrategy {
             true,
             rollTrade
         );
-        if (currencyID == 1) {
-                // Only necessary for wETH/ ETH pair
-                weth.deposit{value: address(this).balance}();
-        }
         
         return (balanceOfWant() - prevBalance);
     }

@@ -15,6 +15,7 @@ def test_profitable_harvest(
         min_market_index,
         chain.time()+5
         )
+    
     # Harvest 1: Send funds through the strategy
     chain.sleep(1)
     strategy.harvest({"from": strategist})

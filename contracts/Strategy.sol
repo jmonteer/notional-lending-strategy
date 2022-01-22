@@ -214,7 +214,13 @@ contract Strategy is BaseStrategy {
             // NOTE: liquidatePosition will try to use balanceOfWant first
             // liquidatePosition will realise Losses if required !! (which cannot be equal to unrealised losses if
             // we are not withdrawing 100% of position)
-            (uint256 amountAvailable, uint256 realisedLoss) = liquidatePosition(amountRequired);
+            uint256 amountAvailable = 0;
+            uint256 realisedLoss = 0;
+
+            // If the toggle to realize losses is off, do not close any position
+            if(toggleRealizeLosses) {
+                (amountAvailable, realisedLoss) = liquidatePosition(amountRequired);
+            }
             _loss = realisedLoss;
             
             if(amountAvailable >= amountRequired) {
@@ -253,7 +259,6 @@ contract Strategy is BaseStrategy {
      * into new positions in Notional
      * @param _debtOutstanding, Debt still left to pay to the vault
      */
-     event numbers(string s, uint256 n);
     function adjustPosition(uint256 _debtOutstanding) internal override {
         uint256 availableWantBalance = balanceOfWant();
         
@@ -273,13 +278,9 @@ contract Strategy is BaseStrategy {
         (uint256 minMarketIndex, uint256 minMarketMaturity) = _getMinimumMarketIndex();
         // If the new position enters a different market than the current maturity, roll the current position into
         // the next maturity market
-        emit numbers("adjust available pre", availableWantBalance);
-        emit numbers("adjust minMarket maturity", minMarketMaturity);
-        emit numbers("adjust _maturity", _maturity);
         if(minMarketMaturity > _maturity && _maturity > 0) {
             availableWantBalance += _rollOverTrade(_maturity);
         }
-        emit numbers("adjust available post", availableWantBalance);
 
         if (_currencyID == 1) {
             // Only necessary for wETH/ ETH pair
@@ -394,11 +395,6 @@ contract Strategy is BaseStrategy {
         // The strategy will only realise losses proportional to the amount we are liquidating
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         uint256 lossesToBeRealised = unrealisedLosses.mul(amountToLiquidate).div(totalDebt.sub(wantBalance));
-        
-        // If the toggle to realize losses is off, return immediately
-        if(!toggleRealizeLosses) {
-            return (0, 0);
-        }
 
         // Due to how Notional works, we need to substract losses from the amount to liquidate
         // If we don't do this and withdraw a small enough % of position, we will not incur in losses,

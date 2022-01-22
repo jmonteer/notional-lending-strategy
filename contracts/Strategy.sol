@@ -253,6 +253,7 @@ contract Strategy is BaseStrategy {
      * into new positions in Notional
      * @param _debtOutstanding, Debt still left to pay to the vault
      */
+     event numbers(string s, uint256 n);
     function adjustPosition(uint256 _debtOutstanding) internal override {
         uint256 availableWantBalance = balanceOfWant();
         
@@ -272,9 +273,13 @@ contract Strategy is BaseStrategy {
         (uint256 minMarketIndex, uint256 minMarketMaturity) = _getMinimumMarketIndex();
         // If the new position enters a different market than the current maturity, roll the current position into
         // the next maturity market
+        emit numbers("adjust available pre", availableWantBalance);
+        emit numbers("adjust minMarket maturity", minMarketMaturity);
+        emit numbers("adjust _maturity", _maturity);
         if(minMarketMaturity > _maturity && _maturity > 0) {
             availableWantBalance += _rollOverTrade(_maturity);
         }
+        emit numbers("adjust available post", availableWantBalance);
 
         if (_currencyID == 1) {
             // Only necessary for wETH/ ETH pair
@@ -637,6 +642,7 @@ contract Strategy is BaseStrategy {
                     // Only necessary for wETH/ ETH pair
                     weth.deposit{value: address(this).balance}();
                 }
+                maturity = 0;
             }
         }
 
@@ -786,7 +792,10 @@ contract Strategy is BaseStrategy {
             true,
             rollTrade
         );
-
+        if (currencyID == 1) {
+                // Only necessary for wETH/ ETH pair
+                weth.deposit{value: address(this).balance}();
+        }
         
         return (balanceOfWant() - prevBalance);
     }

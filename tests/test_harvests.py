@@ -195,13 +195,14 @@ def test_choppy_harvest(
     
     realized_profit = 0
     tx = strategy.harvest({"from": strategist})
+    
     checks.check_harvest_profit(tx, realized_profit, RELATIVE_APPROX)
 
-    # User will withdraw accepting losses
     chain.sleep(3600 * 6)  # 6 hrs needed for profits to unlock
     chain.mine(1)
     assert pytest.approx(vault.strategies(strategy)["totalLoss"], rel=RELATIVE_APPROX) == loss_amount
     assert pytest.approx(vault.strategies(strategy)["totalGain"], rel=RELATIVE_APPROX) == realized_profit
+
     vault.withdraw({"from": user})
 
 def test_maturity_harvest(

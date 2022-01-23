@@ -50,9 +50,9 @@ contract Strategy is BaseStrategy {
     // Difference of decimals between Notional system (8) and want
     uint256 public DECIMALS_DIFFERENCE;
     // Scaling factor for entering positions as the fcash estimations have rounding errors
-    uint256 internal constant FCASH_SCALING = 0;
+    uint256 internal constant FCASH_SCALING = 9_999;
     // minimum maturity for the market to enter
-    uint256 private minTimeToMaturity = 0;
+    uint256 private minTimeToMaturity;
     // minimum amount of want to act on
     uint16 public minAmountWant;
     // Initialize WETH interface
@@ -375,12 +375,16 @@ contract Strategy is BaseStrategy {
         } else {
             want.approve(address(nProxy), availableWantBalance);
         }
+        // Scale down the fcash amount as the function contains rounding errors and may revert with an
+        // "Insufficient cash" message as we are depositing exactly the same amount we are trading
+        availableWantBalance = availableWantBalance.mul(FCASH_SCALING).div(MAX_BPS);
+
         // NOTE: May revert if the availableWantBalance is too high and interest rates get to < 0
         int256 fCashAmountToTrade = nProxy.getfCashAmountGivenCashAmount(
             _currencyID, 
             -int88(availableWantBalance.mul(MAX_BPS).div(DECIMALS_DIFFERENCE)), 
             minMarketIndex, 
-            block.timestamp + 5
+            block.timestamp
             );
 
         if (fCashAmountToTrade <= 0) {

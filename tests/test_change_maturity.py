@@ -35,6 +35,7 @@ def test_change_maturity(
     actions.initialize_intermediary_markets(n_proxy_views, currencyID, n_proxy_implementation, user, account["portfolio"][0][1])
     chain.sleep(account["portfolio"][0][1] - chain.time() +1)
     chain.mine(1)
+    
     checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
 
     account = n_proxy_views.getAccount(strategy)

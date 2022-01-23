@@ -44,11 +44,11 @@ contract Strategy is BaseStrategy {
     using SafeMath for uint256;
 
     // NotionalContract: proxy that points to a router with different implementations depending on function 
-    NotionalProxy public immutable nProxy;
+    NotionalProxy public nProxy;
     // ID of the asset being lent in Notional
-    uint16 public immutable currencyID; 
+    uint16 public currencyID; 
     // Difference of decimals between Notional system (8) and want
-    uint256 public immutable DECIMALS_DIFFERENCE;
+    uint256 public DECIMALS_DIFFERENCE;
     // Scaling factor for entering positions as the fcash estimations have rounding errors
     uint256 internal constant FCASH_SCALING = 0;
     // minimum maturity for the market to enter
@@ -66,8 +66,12 @@ contract Strategy is BaseStrategy {
     // Current maturity invested
     uint256 private maturity;
 
+    // EVENTS
+    event Cloned(address indexed clone);
+
     /*
-     * @notice constructor for the contract, called at deployment
+     * @notice constructor for the contract, called at deployment, calls the initializer function used for 
+     * cloning strategies
      * @param _vault Address of the corresponding vault the contract reports to
      * @param _nProxy Notional proxy used to interact with the protocol
      * @param _currencyID Notional identifier of the currency (token) the strategy interacts with:
@@ -76,7 +80,52 @@ contract Strategy is BaseStrategy {
      * 3 - USDC
      * 4 - WBTC
      */
-    constructor(address _vault, NotionalProxy _nProxy, uint16 _currencyID) public BaseStrategy(_vault) {
+    constructor(
+        address _vault,
+        NotionalProxy _nProxy,
+        uint16 _currencyID    
+    ) public BaseStrategy (_vault) {
+        _initializeNotionalStrategy(_nProxy, _currencyID);
+    }
+
+    /*
+     * @notice Initializer function to initialize both the BaseSrategy and the Notional strategy 
+     * @param _vault Address of the corresponding vault the contract reports to
+     * @param _strategist Strategist managing the strategy
+     * @param _rewards Rewards address
+     * @param _keeper Keeper address
+     * @param _nProxy Notional proxy used to interact with the protocol
+     * @param _currencyID Notional identifier of the currency (token) the strategy interacts with:
+     * 1 - ETH
+     * 2 - DAI
+     * 3 - USDC
+     * 4 - WBTC
+     */
+    function initialize(
+        address _vault,
+        address _strategist,
+        address _rewards,
+        address _keeper,
+        NotionalProxy _nProxy,
+        uint16 _currencyID
+    ) external {
+        _initialize(_vault, _strategist, _rewards, _keeper);
+        _initializeNotionalStrategy(_nProxy, _currencyID);
+    }
+
+    /*
+     * @notice Internal initializer for the Notional Strategy contract
+     * @param _nProxy Notional proxy used to interact with the protocol
+     * @param _currencyID Notional identifier of the currency (token) the strategy interacts with:
+     * 1 - ETH
+     * 2 - DAI
+     * 3 - USDC
+     * 4 - WBTC
+     */
+    function _initializeNotionalStrategy (
+        NotionalProxy _nProxy,
+        uint16 _currencyID
+    ) internal {
         currencyID = _currencyID;
         nProxy = _nProxy;
 
@@ -92,6 +141,45 @@ contract Strategy is BaseStrategy {
         } else {
             require(address(want) == underlying.tokenAddress);
         }
+    }
+
+    /*
+     * @notice Cloning function to re-use the strategy code and deploy the same strategy with other key parameters,
+     * notably currencyID or yVault
+     * @param _vault Address of the corresponding vault the contract reports to
+     * @param _strategist Strategist managing the strategy
+     * @param _rewards Rewards address
+     * @param _keeper Keeper address
+     * @param _nProxy Notional proxy used to interact with the protocol
+     * @param _currencyID Notional identifier of the currency (token) the strategy interacts with:
+     * 1 - ETH
+     * 2 - DAI
+     * 3 - USDC
+     * 4 - WBTC
+     */
+    function cloneStrategy(
+        address _vault,
+        address _strategist,
+        address _rewards,
+        address _keeper,
+        NotionalProxy _nProxy,
+        uint16 _currencyID
+    ) external returns (address payable newStrategy) {
+        // Copied from https://github.com/optionality/clone-factory/blob/master/contracts/CloneFactory.sol
+        bytes20 addressBytes = bytes20(address(this));
+
+        assembly {
+            // EIP-1167 bytecode
+            let clone_code := mload(0x40)
+            mstore(clone_code, 0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000)
+            mstore(add(clone_code, 0x14), addressBytes)
+            mstore(add(clone_code, 0x28), 0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000)
+            newStrategy := create(0, clone_code, 0x37)
+        }
+
+        Strategy(newStrategy).initialize(_vault, _strategist, _rewards, _keeper, _nProxy, _currencyID);
+
+        emit Cloned(newStrategy);
     }
 
     // For ETH based strategies

@@ -109,7 +109,7 @@ currency_IDs = {
 
 thresholds = {
     "WETH": (1000e18, -500e8),
-    "DAI": (50e24, -50e14),
+    "DAI": (30e24, -30e14),
     "WBTC": (50e8, -50e8),
     "USDC": (60e12, -60e14),
 }
@@ -199,25 +199,29 @@ def live_vault(registry, token):
 
 
 @pytest.fixture
-def strategy(strategist, keeper, vault, Strategy, gov, notional_proxy, currencyID):
+def strategy(strategist, keeper, vault, rewards, Strategy, gov, notional_proxy, currencyID):
     strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID)
     strategy.setKeeper(keeper)
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 0, {"from": gov})
-    strategy.setMinTimeToMaturity(1 * 30 * 24 * 60 * 60, {"from": vault.governance()})
+    # strategy.setMinTimeToMaturity(1 * 30 * 24 * 60 * 60, {"from": vault.governance()})
     yield strategy
 
 
 @pytest.fixture
-def cloned_strategy(Strategy, vault, strategy, strategist, gov):
-    # TODO: customize clone method and arguments
-    # TODO: use correct contract name (i.e. replace Strategy)
+def cloned_strategy(Strategy, vault, strategy, strategist, rewards, keeper, notional_proxy, currencyID, gov):
     cloned_strategy = strategy.cloneStrategy(
-        strategist, {"from": strategist}
+        vault,
+        strategist,
+        rewards,
+        keeper,
+        notional_proxy,
+        currencyID,
+        {"from": strategist}
     ).return_value
     cloned_strategy = Strategy.at(cloned_strategy)
     vault.revokeStrategy(strategy)
     vault.addStrategy(cloned_strategy, 10_000, 0, 2 ** 256 - 1, 0, {"from": gov})
-    yield
+    yield cloned_strategy
 
 
 @pytest.fixture(autouse=True)

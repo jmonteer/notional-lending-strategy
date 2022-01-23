@@ -224,6 +224,7 @@ def test_maturity_harvest(
     
     # Harvest 1: Send funds through the strategy
     chain.sleep(1)
+    
     strategy.harvest({"from": strategist})
 
     account = n_proxy_views.getAccount(strategy)

@@ -162,6 +162,9 @@ def amount(token, token_whale, user):
     token.transfer(user, amount, {"from": token_whale})
     yield amount
 
+@pytest.fixture(autouse=True)
+def million_in_token(token):
+    yield round(1e6 / token_prices[token.symbol()]) * 10 ** token.decimals()
 
 @pytest.fixture
 def weth():
@@ -203,7 +206,7 @@ def strategy(strategist, keeper, vault, rewards, Strategy, gov, notional_proxy, 
     strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID)
     strategy.setKeeper(keeper)
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 0, {"from": gov})
-    # strategy.setMinTimeToMaturity(1 * 30 * 24 * 60 * 60, {"from": vault.governance()})
+    strategy.setMinTimeToMaturity(1 * 30 * 24 * 60 * 60, {"from": vault.governance()})
     yield strategy
 
 

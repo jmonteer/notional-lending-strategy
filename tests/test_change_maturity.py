@@ -4,7 +4,8 @@ import pytest
 # tests changing the minAmountToMaturity state variable
 def test_change_maturity(
     chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX, MAX_BPS,
-    n_proxy_views, n_proxy_batch, currencyID, n_proxy_implementation
+    n_proxy_views, n_proxy_batch, currencyID, n_proxy_implementation, token_whale, n_proxy_account,
+    million_in_token
 ):
     # Deposit to the vault
     actions.user_deposit(user, vault, token, int(amount / 2))
@@ -31,8 +32,9 @@ def test_change_maturity(
 
     assert len(account["portfolio"]) == 1
     assert account["portfolio"][0][1] > next_settlement
-
-    actions.initialize_intermediary_markets(n_proxy_views, currencyID, n_proxy_implementation, user, account["portfolio"][0][1])
+    
+    actions.initialize_intermediary_markets(n_proxy_views, currencyID, n_proxy_implementation, user, 
+        account["portfolio"][0][1], n_proxy_batch, token, token_whale, n_proxy_account, million_in_token)
     chain.sleep(account["portfolio"][0][1] - chain.time() +1)
     chain.mine(1)
     

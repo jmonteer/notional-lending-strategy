@@ -225,6 +225,7 @@ contract Strategy is BaseStrategy {
     /*
      * @notice
      *  Setter function for the toggle defining whether to realize losses or not
+     * only accessible to strategist, governance, guardian and management
      * @param _newToggle, new booelan value for the toggle
      */
     function setToggleRealizeLosses(bool _newToggle) external onlyEmergencyAuthorized {
@@ -242,7 +243,7 @@ contract Strategy is BaseStrategy {
 
     /*
      * @notice
-     *  Setter function for the minimum time to maturity to invest into, accesible only to governance
+     *  Setter function for the minimum time to maturity to invest into, accesible only to strategist, governance, guardian and management
      * @param _newTime, new minimum time to maturity to invest into
      */
     function setMinTimeToMaturity(uint256 _newTime) external onlyEmergencyAuthorized {
@@ -251,7 +252,7 @@ contract Strategy is BaseStrategy {
 
     /*
      * @notice
-     *  Setter function for the minimum amount of want to invest, accesible only to governance
+     *  Setter function for the minimum amount of want to invest, accesible only to strategist, governance, guardian and management
      * @param _newMinAmount, new minimum amount of want to invest
      */
     function setMinAmountWant(uint16 _newMinAmount) external onlyEmergencyAuthorized {

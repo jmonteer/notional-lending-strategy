@@ -209,7 +209,7 @@ contract Strategy is BaseStrategy {
      *  Getter function for the current invested maturity
      * @return uint256, current maturity we are invested in
      */
-    function getMaturity() external view onlyGovernance returns(uint256) {
+    function getMaturity() external view returns(uint256) {
         return maturity;
     }
 
@@ -227,7 +227,7 @@ contract Strategy is BaseStrategy {
      *  Setter function for the toggle defining whether to realize losses or not
      * @param _newToggle, new booelan value for the toggle
      */
-    function setToggleRealizeLosses(bool _newToggle) external onlyGovernance {
+    function setToggleRealizeLosses(bool _newToggle) external onlyEmergencyAuthorized {
         toggleRealizeLosses = _newToggle;
     }
     
@@ -245,8 +245,17 @@ contract Strategy is BaseStrategy {
      *  Setter function for the minimum time to maturity to invest into, accesible only to governance
      * @param _newTime, new minimum time to maturity to invest into
      */
-    function setMinTimeToMaturity(uint256 _newTime) external onlyGovernance {
+    function setMinTimeToMaturity(uint256 _newTime) external onlyEmergencyAuthorized {
         minTimeToMaturity = _newTime;
+    }
+
+    /*
+     * @notice
+     *  Setter function for the minimum amount of want to invest, accesible only to governance
+     * @param _newMinAmount, new minimum amount of want to invest
+     */
+    function setMinAmountWant(uint16 _newMinAmount) external onlyEmergencyAuthorized {
+        minAmountWant = _newMinAmount;
     }
 
     /*

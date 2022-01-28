@@ -311,7 +311,7 @@ contract Strategy is BaseStrategy {
             // NOTE: liquidatePosition will try to use balanceOfWant first
             // liquidatePosition will realise Losses if required !! (which cannot be equal to unrealised losses if
             // we are not withdrawing 100% of position)
-            uint256 amountAvailable = 0;
+            uint256 amountAvailable = wantBalance;
             uint256 realisedLoss = 0;
 
             // If the toggle to realize losses is off, do not close any position
@@ -321,13 +321,11 @@ contract Strategy is BaseStrategy {
             _loss = realisedLoss;
             
             if(amountAvailable >= amountRequired) {
+                // There are no realisedLosses, debt is paid entirely and 
+                // profit is defined in line 299 and 306
                 _debtPayment = _debtOutstanding;
-                // profit remains unchanged unless there is not enough to pay it
-                if(amountRequired.sub(_debtPayment) < _profit) {
-                    _profit = amountRequired.sub(_debtPayment);
-                }
             } else {
-                // we were not able to free enough funds
+                // We were not able to free enough funds
                 if(amountAvailable < _debtOutstanding) {
                     // available funds are lower than the repayment that we need to do
                     _profit = 0;
@@ -337,16 +335,15 @@ contract Strategy is BaseStrategy {
                 } else {
                     // NOTE: amountRequired is always equal or greater than _debtOutstanding
                     // important to use amountRequired just in case amountAvailable is > amountAvailable
+                    // We will not report and losses but pay the entire debtOutstanding and report the rest of
+                    // amountAvailable as profit (therefore losses are 0 because we were able to pay debtPayment)
                     _debtPayment = _debtOutstanding;
                     _profit = amountAvailable.sub(_debtPayment);
+                    _loss = 0;
                 }
             }
         } else {
             _debtPayment = _debtOutstanding;
-            // profit remains unchanged unless there is not enough to pay it
-            if(amountRequired.sub(_debtPayment) < _profit) {
-                _profit = amountRequired.sub(_debtPayment);
-            }
         }
     }
 

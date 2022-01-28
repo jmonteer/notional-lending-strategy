@@ -705,6 +705,24 @@ contract Strategy is BaseStrategy {
         return _amount.mul(uint256(underlyingToken.decimals)).div(uint256(ethRate.rate));
     }
 
+    /*
+     * @notice
+     *  Public function used by the keeper to assess whether a harvest is necessary or not, 
+     * returns true only if there is a position to settle
+     * @param callCostInWei, call cost estimation performed by the keeper
+     * @return bool, true when the strategy has a mature position
+     */
+    function harvestTrigger(uint256 callCostInWei) public view override returns (bool) {
+        // We check if there is anything to settle in the account's portfolio by checking the account's
+        // nextSettleTime in the account context
+        AccountContext memory _accountContext = nProxy.getAccountContext(address(this));
+        // If there is something to settle, do it and withdraw to the strategy's balance
+        if (uint256(_accountContext.nextSettleTime) < block.timestamp) {
+            return true;
+        }
+        return false;
+    }
+
     // INTERNAL FUNCTIONS
 
     /*

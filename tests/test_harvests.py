@@ -249,12 +249,20 @@ def test_maturity_harvest(
     
     # Add some code before harvest #2 to simulate earning yield
     actions.wait_until_settlement(next_settlement)
+
+    harvest_trigger = strategy.harvestTrigger(0)
+    assert harvest_trigger == False
+
     actions.initialize_intermediary_markets(n_proxy_views, currencyID, n_proxy_implementation, user, 
         account[0][0], n_proxy_batch, token, token_whale, n_proxy_account, million_in_token)
     checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
     chain.sleep(next_settlement - chain.time() + 1)
     chain.mine(1)
     checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
+
+    harvest_trigger = strategy.harvestTrigger(0)
+    assert harvest_trigger == True
+    
     totalAssets = strategy.estimatedTotalAssets()
     position_cash = account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS
 

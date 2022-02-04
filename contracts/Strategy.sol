@@ -61,8 +61,16 @@ contract Strategy is BaseStrategy {
     bytes4 internal constant ERC1155_ACCEPTED = bytes4(keccak256("onERC1155Received(address,address,uint256,uint256,bytes)"));
     // To control when positions should be liquidated before maturity or not (and thus incur in losses)
     bool internal toggleRealizeLosses;
+    // To control whether migrations try to get positions out of notional
+    bool internal forceMigration;
     // Base for percentage calculations. BPS (10000 = 100%, 100 = 1%)
     uint256 private constant MAX_BPS = 10_000;
+    // Constant to handle weth/eth currencyID case (notional uses eth but vault provides weth)
+    uint256 private constant ONE = 1;
+    // Constants identifying the types of trades following Notional's internal notation defined in TradeActionType
+    // struct in Types.sol interface
+    uint8 private TRADE_TYPE_LEND = 0;
+    uint8 private TRADE_TYPE_BORROW = 1;
     // Current maturity invested
     uint256 private maturity;
 
@@ -135,12 +143,18 @@ contract Strategy is BaseStrategy {
         // By default do not realize losses
         toggleRealizeLosses = false;
 
+        // By default try to get positions out of Notional
+        forceMigration = false;
+
         // Check whether the currency is set up right
-        if (_currencyID == 1) {
+        if (_currencyID == ONE) {
             require(address(0) == underlying.tokenAddress); 
         } else {
             require(address(want) == underlying.tokenAddress);
         }
+
+        // Set health check to health.ychad.eth
+        healthCheck = 0xDDCea799fF1699e98EDF118e0629A974Df7DF012;
     }
 
     /*
@@ -187,11 +201,29 @@ contract Strategy is BaseStrategy {
 
     /*
      * @notice
+     *  Function available for vault management to settle and withdraw all funds of mature positions in case of 
+     * emergency
+     */
+    function checkPositionsAndWithdraw() external onlyVaultManagers {
+        _checkPositionsAndWithdraw();
+    }
+
+    /*
+     * @notice
      *  Sweep function only callable by governance to be able to sweep any ETH assigned to the strategy's balance
      */
     function sendETHToGovernance() external onlyGovernance {
         (bool sent, bytes memory data) = governance().call{value: address(this).balance}("");
         require(sent, "Failed to send Ether");
+    }
+
+    /*
+     * @notice
+     *  Additional function for emergency ETH withdrawal by governance, deposit as weth and ERC20 sweep
+     * will pick it up
+     */
+    function depositWETH() external onlyGovernance {
+        weth.deposit{value: address(this).balance}();
     }
 
     /*
@@ -225,11 +257,30 @@ contract Strategy is BaseStrategy {
     /*
      * @notice
      *  Setter function for the toggle defining whether to realize losses or not
-     * only accessible to strategist, governance, guardian and management
+     * only accessible to vault managers
      * @param _newToggle, new booelan value for the toggle
      */
-    function setToggleRealizeLosses(bool _newToggle) external onlyEmergencyAuthorized {
+    function setToggleRealizeLosses(bool _newToggle) external onlyVaultManagers {
         toggleRealizeLosses = _newToggle;
+    }
+
+    /*
+     * @notice
+     *  Getter function for the forceMigration defining whether to try to migrate Notional positions or not
+     * @return bool, current forceMigration state variable
+     */
+    function getForceMigration() external view returns(bool) {
+        return forceMigration;
+    }
+
+    /*
+     * @notice
+     *  Setter function for the forceMigration defining whether to try to migrate Notional positions or not
+     * only accessible to vault managers
+     * @param _newToggle, new booelan value for the toggle
+     */
+    function setForceMigration(bool _forceMigration) external onlyVaultManagers {
+        forceMigration = _forceMigration;
     }
     
     /*
@@ -243,10 +294,11 @@ contract Strategy is BaseStrategy {
 
     /*
      * @notice
-     *  Setter function for the minimum time to maturity to invest into, accesible only to strategist, governance, guardian and management
+     *  Setter function for the minimum time to maturity to invest into, 
+     * accesible only to vault managers
      * @param _newTime, new minimum time to maturity to invest into
      */
-    function setMinTimeToMaturity(uint256 _newTime) external onlyEmergencyAuthorized {
+    function setMinTimeToMaturity(uint256 _newTime) external onlyVaultManagers {
         minTimeToMaturity = _newTime;
     }
 
@@ -255,7 +307,7 @@ contract Strategy is BaseStrategy {
      *  Setter function for the minimum amount of want to invest, accesible only to strategist, governance, guardian and management
      * @param _newMinAmount, new minimum amount of want to invest
      */
-    function setMinAmountWant(uint16 _newMinAmount) external onlyEmergencyAuthorized {
+    function setMinAmountWant(uint16 _newMinAmount) external onlyVaultManagers {
         minAmountWant = _newMinAmount;
     }
 
@@ -376,7 +428,7 @@ contract Strategy is BaseStrategy {
             availableWantBalance += _rollOverTrade(_maturity);
         }
 
-        if (_currencyID == 1) {
+        if (_currencyID == ONE) {
             // Only necessary for wETH/ ETH pair
             weth.withdraw(availableWantBalance);
         } else {
@@ -388,6 +440,8 @@ contract Strategy is BaseStrategy {
                 availableWantBalance.mul(MAX_BPS).div(DECIMALS_DIFFERENCE).mul(FCASH_SCALING).div(MAX_BPS)
             );
         // NOTE: May revert if the availableWantBalance is too high and interest rates get to < 0
+        // To solve it, several options are possible: decrease debtRatio to reduce funds flowing into the strat,
+        // increase minAmountWant for harvest to pass and not entering into new positions
         int256 fCashAmountToTrade = nProxy.getfCashAmountGivenCashAmount(
             _currencyID, 
             -amountTrade, 
@@ -402,7 +456,7 @@ contract Strategy is BaseStrategy {
         // Trade the shortest maturity market with at least minAmountToMaturity time left
         bytes32[] memory trades = new bytes32[](1);
         trades[0] = getTradeFrom(
-            0, 
+            TRADE_TYPE_LEND, 
             minMarketIndex, 
             uint256(fCashAmountToTrade)
             );
@@ -411,8 +465,6 @@ contract Strategy is BaseStrategy {
             DepositActionType.DepositUnderlying,
             availableWantBalance,
             0, 
-            true,
-            true,
             trades
         );
 
@@ -435,6 +487,8 @@ contract Strategy is BaseStrategy {
         uint120 padding = uint120(0);
 
         // We create result of trade in a bitmap packed encoded bytes32
+        // (unpacking of the trade in Notional happens here: 
+        // https://github.com/notional-finance/contracts-v2/blob/master/contracts/external/actions/TradingAction.sol#L322)
         result = bytes32(uint(tradeType)) << 248;
         result |= bytes32(uint(marketIndex) << 240);
         result |= bytes32(uint(fCashAmount) << 152);
@@ -464,6 +518,17 @@ contract Strategy is BaseStrategy {
             _unrealisedProfit = totalAssets.sub(totalDebt);
         }
 
+    }
+
+    /*
+     * @notice
+     *  External function for vault managers to manually liquidate a specific amount in 'want' tokens
+     * @param amountToLiquidate, The total amount of tokens needed to liberate
+     * @return uint256 liquidatedAmount, Amount freed
+     * @return uint256 loss, Losses incurred due to early closing of positions
+     */
+    function liquidateAmount(uint256 amountToLiquidate) external onlyVaultManagers returns(uint256 liquidatedAmount, uint256 loss) {
+        (liquidateAmount, loss) = liquidatePosition(amountLiquidated);
     }
 
     /*
@@ -516,6 +581,13 @@ contract Strategy is BaseStrategy {
                 uint256 _marketIndex = _getMarketIndexForMaturity(
                     _accountPortfolio[i].maturity
                 );
+
+                // Handle case where there was no success finding an available market
+                if (_marketIndex == 0) {
+                    // We have not liberated any amount of want
+                    break;
+                }
+
                 // Retrieve size of position in this market (underlyingInternalNotation)
                 (, int256 underlyingInternalNotation) = nProxy.getCashAmountGivenfCashAmount(
                     currencyID,
@@ -535,14 +607,19 @@ contract Strategy is BaseStrategy {
                         _marketIndex, 
                         block.timestamp
                         );
-                    trades[i] = getTradeFrom(1, _marketIndex, 
+
+                    if (fCashAmountToTrade <= 0) {
+                        break;
+                    }
+
+                    trades[i] = getTradeFrom(TRADE_TYPE_BORROW, _marketIndex, 
                                             uint256(fCashAmountToTrade)
                                             );
                     tradesToExecute++;
                     remainingAmount = 0;
                     break;
                 } else {
-                    trades[i] = getTradeFrom(1, _marketIndex, uint256(_accountPortfolio[i].notional));
+                    trades[i] = getTradeFrom(TRADE_TYPE_BORROW, _marketIndex, uint256(_accountPortfolio[i].notional));
                     tradesToExecute++;
                     remainingAmount -= underlyingPosition;
                     maturity = 0;
@@ -564,9 +641,7 @@ contract Strategy is BaseStrategy {
         executeBalanceActionWithTrades(
             DepositActionType.None, 
             0,
-            0, 
-            true,
-            true,
+            0,
             final_trades
         );
 
@@ -601,27 +676,61 @@ contract Strategy is BaseStrategy {
      * @notice
      *  Internal function used to migrate all 'want' tokens and active Notional positions to a new strategy
      * @param _newStrategy address where the contract of the new strategy is located
+     * This function is then separated into its different parts to be able to migrate in case of emergency
+     * by launching different txs
      */
     function prepareMigration(address _newStrategy) internal override {
-        _checkPositionsAndWithdraw();
-        PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
+        if(!forceMigration) {
+            _checkPositionsAndWithdraw();
+            PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
 
-        uint256 _id = 0;
-        for(uint256 i = 0; i < _accountPortfolio.length; i++) {
-            _id = nProxy.encodeToId(
+            for(uint256 i = 0; i < _accountPortfolio.length; i++) {
+                _transferMarket(
+                    _newStrategy,
+                    uint40(_accountPortfolio[i].maturity), 
+                    uint8(_accountPortfolio[i].assetType),
+                    uint256(_accountPortfolio[i].notional)
+                    );
+            }
+        }
+    }
+
+    /*
+     * @notice
+     *  External function used by vault management to use in case manual migration of markets is required
+     * @param to address of the new strategy/ contract (MUST implement the erc1155 callback ´onERC1155Received´ 
+     * implemented below)
+     * @param positionMaturity maturity of the asset position to transfer
+     * @param assetType Type of asset to transfer (nToken or fCash)
+     * @param position amount of asset type to send to the receiving address
+     */
+     function transferMarket(address to, uint40 positionMaturity, uint8 assetType, uint256 position) external onlyVaultManagers {
+        _transferMarket(to, positionMaturity, assetType, position);
+    }
+
+    /*
+     * @notice
+     *  Internal function used to transfer an asset position (nToken or fCash) for a particular maturity between
+     * addresses when migrating
+     * @param _to address of the new strategy/ contract (MUST implement the erc1155 callback ´onERC1155Received´ 
+     * implemented below)
+     * @param _positionMaturity maturity of the asset position to transfer
+     * @param _assetType Type of asset to transfer (nToken or fCash)
+     * @param _position amount of asset type to send to the receiving address
+     */
+    function _transferMarket(address _to, uint40 _positionMaturity, uint8 _assetType, uint256 _position) internal {
+        uint256 _id = nProxy.encodeToId(
                 currencyID, 
-                uint40(_accountPortfolio[i].maturity), 
-                uint8(_accountPortfolio[i].assetType)
+                _positionMaturity, 
+                _assetType
                 );
-            nProxy.safeTransferFrom(
+        nProxy.safeTransferFrom(
                 address(this), 
-                _newStrategy,
+                _to,
                 _id, 
-                uint256(_accountPortfolio[i].notional),
+                _position,
                 ""
                 );
-        }
-        
     }
 
     /*
@@ -745,7 +854,7 @@ contract Strategy is BaseStrategy {
 
             if(cashBalance > 0) {
                 nProxy.withdraw(currencyID, uint88(cashBalance), true);
-                if (currencyID == 1) {
+                if (currencyID == ONE) {
                     // Only necessary for wETH/ ETH pair
                     weth.deposit{value: address(this).balance}();
                 }
@@ -811,6 +920,7 @@ contract Strategy is BaseStrategy {
         bool success = false;
         for(uint256 j=0; j<_activeMarkets.length; j++){
             if(_maturity == _activeMarkets[j].maturity) {
+                // Return array index + 1 as market indices in Notional start at 1
                 return j+1;
             }
         }
@@ -850,30 +960,28 @@ contract Strategy is BaseStrategy {
      * @param trades, array of bytes32 trades to perform
      */
     function executeBalanceActionWithTrades(
-        DepositActionType actionType,
-        uint256 depositActionAmount,
-        uint256 withdrawAmountInternalPrecision,
-        bool withdrawEntireCashBalance,
-        bool redeemToUnderlying,
-        bytes32[] memory trades) internal {
-        BalanceActionWithTrades[] memory actions = new BalanceActionWithTrades[](1);
+        DepositActionType _actionType,
+        uint256 _depositActionAmount,
+        uint256 _withdrawAmountInternalPrecision,
+        bytes32[] memory _trades) internal {
+        BalanceActionWithTrades[] memory _actions = new BalanceActionWithTrades[](1);
         // gas savings
         uint16 _currencyID = currencyID;
-        actions[0] = BalanceActionWithTrades(
-            actionType,
+        _actions[0] = BalanceActionWithTrades(
+            _actionType,
             _currencyID,
-            depositActionAmount,
-            withdrawAmountInternalPrecision, 
-            withdrawEntireCashBalance,
-            redeemToUnderlying,
-            trades
+            _depositActionAmount,
+            _withdrawAmountInternalPrecision, 
+            true,
+            true,
+            _trades
         );
 
-        if (_currencyID == 1) {
-            nProxy.batchBalanceAndTradeAction{value: depositActionAmount}(address(this), actions);
+        if (_currencyID == ONE) {
+            nProxy.batchBalanceAndTradeAction{value: _depositActionAmount}(address(this), _actions);
             weth.deposit{value: address(this).balance}();
         } else {
-            nProxy.batchBalanceAndTradeAction(address(this), actions);
+            nProxy.batchBalanceAndTradeAction(address(this), _actions);
         }
     }
 
@@ -889,15 +997,19 @@ contract Strategy is BaseStrategy {
         uint256 prevBalance = balanceOfWant();
         PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
         uint256 _currentIndex = _getMarketIndexForMaturity(_currentMaturity);
+
+        // Handle case where there was no success finding an available market
+        if (_currentIndex == 0) {
+            // We have not liberated any amount of want
+            return 0;
+        }
         
         bytes32[] memory rollTrade = new bytes32[](1);
-        rollTrade[0] = getTradeFrom(1, _currentIndex, uint256(_accountPortfolio[0].notional));
+        rollTrade[0] = getTradeFrom(TRADE_TYPE_BORROW, _currentIndex, uint256(_accountPortfolio[0].notional));
         executeBalanceActionWithTrades(
             DepositActionType.None, 
             0,
-            0, 
-            true,
-            true,
+            0,
             rollTrade
         );
         

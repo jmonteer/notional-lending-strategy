@@ -8,7 +8,6 @@ def test_profitable_harvest(
     million_in_token
 ):
     # Deposit to the vault
-
     initial_balance = token.balanceOf(vault.address)
 
     actions.user_deposit(user, vault, token, amount)
@@ -55,7 +54,8 @@ def test_profitable_harvest(
 
     # check that estimatedTotalAssets estimates correctly
     assert pytest.approx(strategy.estimatedTotalAssets(), rel=RELATIVE_APPROX) == position_cash
-    assert position_cash > amount
+    assert position_cash > amount_invested
+    
     profit_amount = 0
     loss_amount = 0
 
@@ -81,7 +81,7 @@ def test_profitable_harvest(
     account = n_proxy_views.getAccount(strategy)
 
     assert amount_invested == (tx2.events["Harvested"]["loss"] + tx2.events["Harvested"]["debtPayment"])
-    assert (tx2.events["Harvested"]["debtPayment"] + account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS) > amount
+    assert (tx2.events["Harvested"]["debtPayment"] + account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS) > amount_invested
     
 
     # Harvest 3: wait until maturity to settle and withdraw profits

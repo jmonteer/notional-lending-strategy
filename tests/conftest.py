@@ -91,9 +91,9 @@ token_addresses = {
 @pytest.fixture(
     params=[
         # 'WBTC', # WBTC
-        # "WETH",  # WETH
-        # 'DAI', # DAI
-        'USDC', # USDC
+        "WETH",  # WETH
+        'DAI', # DAI
+        # 'USDC', # USDC
     ],
     scope="session",
     autouse=True,
@@ -189,13 +189,7 @@ def weth_amount(user, weth):
 
 @pytest.fixture(scope="function", autouse=True)
 def vault(pm, gov, rewards, guardian, management, token, currencyID):
-    # Vault = pm(config["dependencies"][0]).Vault
-    # vault = guardian.deploy(Vault)
-    # vault.initialize(token, gov, rewards, "", "", guardian, management)
-    # vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
-    # vault.setManagement(management, {"from": gov})
-    # vault.setManagementFee(0, {"from": gov})
-    # vault.setPerformanceFee(0, {"from": gov})
+    
 
     vault = Contract(live_vaults[token.symbol()])
 
@@ -204,8 +198,14 @@ def vault(pm, gov, rewards, guardian, management, token, currencyID):
         new_dr = int(vault.strategies(strat_reduce)["debtRatio"] / 2)
         vault.updateStrategyDebtRatio(strat_reduce, new_dr, {"from":vault.governance()})
         strat_reduce.harvest({"from": vault.governance()})
-
-    # vault.updateStrategyDebtRatio("0x1676055fE954EE6fc388F9096210E5EbE0A9070c", 0, {"from":gov})
+    elif currencyID == 1:
+        Vault = pm(config["dependencies"][0]).Vault
+        vault = guardian.deploy(Vault)
+        vault.initialize(token, gov, rewards, "", "", guardian, management)
+        vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
+        vault.setManagement(management, {"from": gov})
+        vault.setManagementFee(0, {"from": gov})
+        vault.setPerformanceFee(1_000, {"from": gov})
 
     yield vault
 

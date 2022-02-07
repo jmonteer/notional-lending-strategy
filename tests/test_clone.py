@@ -30,6 +30,7 @@ def test_clone(
     checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
 
     cloned_strategy.setDoHealthCheck(False, {"from": gov})
+    vault.updateStrategyDebtRatio(cloned_strategy, 0, {"from": gov})
     tx = cloned_strategy.harvest({"from": gov})
 
     chain.sleep(3600 * 6)  # 6 hrs needed for profits to unlock

@@ -406,6 +406,7 @@ contract Strategy is BaseStrategy {
      * @param _debtOutstanding, Debt still left to pay to the vault
      */
     function adjustPosition(uint256 _debtOutstanding) internal override {
+        
         uint256 availableWantBalance = balanceOfWant();
         
         if(availableWantBalance <= _debtOutstanding) {
@@ -448,7 +449,7 @@ contract Strategy is BaseStrategy {
             minMarketIndex, 
             block.timestamp
             );
-
+        
         if (fCashAmountToTrade <= 0) {
             return;
         }
@@ -528,7 +529,7 @@ contract Strategy is BaseStrategy {
      * @return uint256 loss, Losses incurred due to early closing of positions
      */
     function liquidateAmount(uint256 amountToLiquidate) external onlyVaultManagers returns(uint256 liquidatedAmount, uint256 loss) {
-        (liquidateAmount, loss) = liquidatePosition(amountLiquidated);
+        (liquidatedAmount, loss) = liquidatePosition(amountToLiquidate);
     }
 
     /*
@@ -544,7 +545,7 @@ contract Strategy is BaseStrategy {
         returns (uint256 _liquidatedAmount, uint256 _loss)
     {
         _checkPositionsAndWithdraw();
-
+        
         uint256 wantBalance = balanceOfWant();
         if (wantBalance >= _amountNeeded) {
             return (_amountNeeded, 0);
@@ -552,6 +553,7 @@ contract Strategy is BaseStrategy {
         
         // Get current position's P&L
         (, uint256 unrealisedLosses) = getUnrealisedPL();
+        
         // We only need to withdraw what we don't currently have
         uint256 amountToLiquidate = _amountNeeded.sub(wantBalance);
         
@@ -559,6 +561,7 @@ contract Strategy is BaseStrategy {
         // of lending at a certain %
         // The strategy will only realise losses proportional to the amount we are liquidating
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
+        
         uint256 lossesToBeRealised = unrealisedLosses.mul(amountToLiquidate).div(totalDebt.sub(wantBalance));
 
         // Due to how Notional works, we need to substract losses from the amount to liquidate
@@ -584,7 +587,7 @@ contract Strategy is BaseStrategy {
 
                 // Handle case where there was no success finding an available market
                 if (_marketIndex == 0) {
-                    // We have not liberated any amount of want
+                    // Break the loop as something happened with the markets
                     break;
                 }
 
@@ -822,11 +825,16 @@ contract Strategy is BaseStrategy {
      * @return bool, true when the strategy has a mature position
      */
     function harvestTrigger(uint256 callCostInWei) public view override returns (bool) {
-        // We check if there is anything to settle in the account's portfolio by checking the account's
-        // nextSettleTime in the account context
+        // Check is there is credit available for the strategy to invest
+        if (vault.creditAvailable() > 0) {
+            return true;
+        }
+
+        // If not, we check if there is anything to settle in the account's portfolio by checking the account's
+        // nextSettleTime in the account context and comparing it against current block time
         AccountContext memory _accountContext = nProxy.getAccountContext(address(this));
         // If there is something to settle, do it and withdraw to the strategy's balance
-        if (uint256(_accountContext.nextSettleTime) < block.timestamp) {
+        if (uint256(_accountContext.nextSettleTime) < block.timestamp && uint256(_accountContext.nextSettleTime) > 0) {
             return true;
         }
         return false;

@@ -8,7 +8,7 @@ def user_deposit(user, vault, token, amount):
     if token.allowance(user, vault) < amount:
         token.approve(vault, 2 ** 256 - 1, {"from": user})
     vault.deposit(amount, {"from": user})
-    assert token.balanceOf(vault.address) == amount
+    assert token.balanceOf(vault.address) >= amount
 
 
 def wait_until_settlement(next_settlement):

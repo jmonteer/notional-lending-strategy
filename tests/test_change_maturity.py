@@ -21,7 +21,6 @@ def test_change_maturity(
     next_settlement = account[0][0]
 
     assert next_settlement == active_markets[0][1]
-
     # Second shortest market possible
     actions.user_deposit(user, vault, token, int(amount / 2))
     strategy.setMinTimeToMaturity(30 * 86400, {"from": vault.governance()})
@@ -30,6 +29,7 @@ def test_change_maturity(
     tx2 = strategy.harvest()
     account = n_proxy_views.getAccount(strategy)
 
+    amount_invested = vault.strategies(strategy)["totalDebt"]
     assert len(account["portfolio"]) == 1
     assert account["portfolio"][0][1] > next_settlement
     
@@ -42,9 +42,10 @@ def test_change_maturity(
 
     account = n_proxy_views.getAccount(strategy)
     vault.updateStrategyDebtRatio(strategy, 0, {"from":vault.governance()})
+    strategy.setDoHealthCheck(False, {"from": vault.governance()})
     tx3 = strategy.harvest()
 
-    assert tx3.events["Harvested"]["profit"] >= (account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS - amount)
+    assert tx3.events["Harvested"]["profit"] >= (account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS - amount_invested)
     chain.sleep(6 * 3600)
     chain.mine(1)
     

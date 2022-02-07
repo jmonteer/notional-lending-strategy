@@ -45,7 +45,8 @@ def management(accounts):
 
 @pytest.fixture
 def strategist(accounts):
-    yield accounts[4]
+    # yield accounts[4]
+    yield accounts.at("0xD11aa2E3a000275eD12B87515C9AC0D67B32E7B9", force=True)
 
 
 @pytest.fixture
@@ -89,9 +90,9 @@ token_addresses = {
 # TODO: uncomment those tokens you want to test as want
 @pytest.fixture(
     params=[
-        'WBTC', # WBTC
-        "WETH",  # WETH
-        'DAI', # DAI
+        # 'WBTC', # WBTC
+        # "WETH",  # WETH
+        # 'DAI', # DAI
         'USDC', # USDC
     ],
     scope="session",
@@ -109,9 +110,16 @@ currency_IDs = {
 
 thresholds = {
     "WETH": (1000e18, -500e8),
-    "DAI": (30e24, -30e14),
+    "DAI": (50e24, -50e14),
     "WBTC": (50e8, -50e8),
     "USDC": (60e12, -60e14),
+}
+
+live_vaults = {
+    "WETH": "0xa258C4606Ca8206D8aA700cE2143D7db854D168c",
+    "DAI": "0xdA816459F1AB5631232FE5e97a05BBBb94970c95",
+    "WBTC": "0xA696a63cc78DfFa1a63E9E50587C197387FF6C7E",
+    "USDC": "0xa354F35829Ae975e850e23e9615b11Da1B3dC4DE",
 }
 
 @pytest.fixture
@@ -180,14 +188,25 @@ def weth_amount(user, weth):
 
 
 @pytest.fixture(scope="function", autouse=True)
-def vault(pm, gov, rewards, guardian, management, token):
-    Vault = pm(config["dependencies"][0]).Vault
-    vault = guardian.deploy(Vault)
-    vault.initialize(token, gov, rewards, "", "", guardian, management)
-    vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
-    vault.setManagement(management, {"from": gov})
-    vault.setManagementFee(0, {"from": gov})
-    vault.setPerformanceFee(0, {"from": gov})
+def vault(pm, gov, rewards, guardian, management, token, currencyID):
+    # Vault = pm(config["dependencies"][0]).Vault
+    # vault = guardian.deploy(Vault)
+    # vault.initialize(token, gov, rewards, "", "", guardian, management)
+    # vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
+    # vault.setManagement(management, {"from": gov})
+    # vault.setManagementFee(0, {"from": gov})
+    # vault.setPerformanceFee(0, {"from": gov})
+
+    vault = Contract(live_vaults[token.symbol()])
+
+    if (currencyID == 4) :
+        strat_reduce = Contract("0xb85413f6d07454828eAc7E62df7d847316475178")
+        new_dr = int(vault.strategies(strat_reduce)["debtRatio"] / 2)
+        vault.updateStrategyDebtRatio(strat_reduce, new_dr, {"from":vault.governance()})
+        strat_reduce.harvest({"from": vault.governance()})
+
+    # vault.updateStrategyDebtRatio("0x1676055fE954EE6fc388F9096210E5EbE0A9070c", 0, {"from":gov})
+
     yield vault
 
 
@@ -204,9 +223,14 @@ def live_vault(registry, token):
 @pytest.fixture
 def strategy(strategist, keeper, vault, rewards, Strategy, gov, notional_proxy, currencyID):
     strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID)
+    # strategy = Contract("0x873ac3704231E7835AdC96d5D6533ff56be80818")
+    
     strategy.setKeeper(keeper)
-    vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 0, {"from": gov})
-    strategy.setMinTimeToMaturity(1 * 30 * 24 * 60 * 60, {"from": vault.governance()})
+    debtRatio = 500 if vault.debtRatio() <= 9_500 else 10_000 - vault.debtRatio()
+    if currencyID == 1:
+        debtRatio = int(debtRatio / 10)
+    vault.addStrategy(strategy, debtRatio, 0, 2 ** 256 - 1, 1000, {"from": gov})
+    # strategy.setMinTimeToMaturity(1 * 30 * 24 * 60 * 60, {"from": vault.governance()})
     yield strategy
 
 
@@ -222,19 +246,23 @@ def cloned_strategy(Strategy, vault, strategy, strategist, rewards, keeper, noti
         {"from": strategist}
     ).return_value
     cloned_strategy = Strategy.at(cloned_strategy)
-    vault.revokeStrategy(strategy)
-    vault.addStrategy(cloned_strategy, 10_000, 0, 2 ** 256 - 1, 0, {"from": gov})
+    vault.revokeStrategy(strategy, {"from": gov})
+    debtRatio = 500 if vault.debtRatio() <= 9_500 else 10_000 - vault.debtRatio()
+    vault.addStrategy(cloned_strategy, debtRatio, 0, 2 ** 256 - 1, 1_000, {"from": gov})
     yield cloned_strategy
 
 
 @pytest.fixture(autouse=True)
-def withdraw_no_losses(vault, token, amount, user):
+def withdraw_no_losses(vault, token, amount, user, currencyID, RELATIVE_APPROX):
     yield
-    if vault.totalSupply() != 0:
+    if vault.balanceOf(user) != 0:
         vault.withdraw({"from": user})
         # check that we dont have previously realised losses
         # NOTE: this assumes deposit is `amount`
-        assert token.balanceOf(user) >= amount
+        if currencyID > 0:
+            assert pytest.approx(token.balanceOf(user), rel=RELATIVE_APPROX) == amount
+        else:
+            assert token.balanceOf(user) >= amount
         return
 
 

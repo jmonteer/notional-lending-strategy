@@ -16,6 +16,7 @@ def test_clone(
     # Check harvesting into the clone
     chain.sleep(1)
     tx = cloned_strategy.harvest({"from": gov})
+    amount_invested = vault.strategies(cloned_strategy)["totalDebt"]
 
     account = n_proxy_views.getAccount(cloned_strategy)
     
@@ -24,4 +25,12 @@ def test_clone(
 
     # Sleep until maturity so the user can withdraw without reaching max_loss from the vault
     chain.sleep(account[0][0] - chain.time() + 1)
+    chain.mine(1)
+
+    checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
+
+    cloned_strategy.setDoHealthCheck(False, {"from": gov})
+    tx = cloned_strategy.harvest({"from": gov})
+
+    chain.sleep(3600 * 6)  # 6 hrs needed for profits to unlock
     chain.mine(1)

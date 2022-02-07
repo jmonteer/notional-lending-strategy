@@ -252,7 +252,11 @@ def test_maturity_harvest(
         min_market_index,
         chain.time()
         )
+    harvest_trigger = strategy.harvestTrigger(0)
+    assert harvest_trigger == True
     strategy.harvest({"from": strategist})
+    harvest_trigger = strategy.harvestTrigger(0)
+    assert harvest_trigger == False
 
     account = n_proxy_views.getAccount(strategy)
     next_settlement = account[0][0]
@@ -296,6 +300,9 @@ def test_maturity_harvest(
     strategy.setDoHealthCheck(False, {"from": vault.governance()})
     tx = strategy.harvest({"from": strategist})
     assert tx.events["Harvested"]["profit"] >= profit_amount
+
+    harvest_trigger = strategy.harvestTrigger(0)
+    assert harvest_trigger == False
 
     chain.sleep(3600 * 6)  # 6 hrs needed for profits to unlock
     chain.mine(1)

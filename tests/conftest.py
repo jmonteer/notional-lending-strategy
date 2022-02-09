@@ -90,10 +90,10 @@ token_addresses = {
 # TODO: uncomment those tokens you want to test as want
 @pytest.fixture(
     params=[
-        # 'WBTC', # WBTC
+        'WBTC', # WBTC
         "WETH",  # WETH
         'DAI', # DAI
-        # 'USDC', # USDC
+        'USDC', # USDC
     ],
     scope="session",
     autouse=True,
@@ -111,7 +111,7 @@ currency_IDs = {
 thresholds = {
     "WETH": (1000e18, -500e8),
     "DAI": (50e24, -50e14),
-    "WBTC": (50e8, -50e8),
+    "WBTC": (60e8, -60e8),
     "USDC": (60e12, -60e14),
 }
 
@@ -191,21 +191,21 @@ def weth_amount(user, weth):
 def vault(pm, gov, rewards, guardian, management, token, currencyID):
     
 
-    vault = Contract(live_vaults[token.symbol()])
+    # vault = Contract(live_vaults[token.symbol()])
 
-    if (currencyID == 4) :
-        strat_reduce = Contract("0xb85413f6d07454828eAc7E62df7d847316475178")
-        new_dr = int(vault.strategies(strat_reduce)["debtRatio"] / 2)
-        vault.updateStrategyDebtRatio(strat_reduce, new_dr, {"from":vault.governance()})
-        strat_reduce.harvest({"from": vault.governance()})
-    elif currencyID == 1:
-        Vault = pm(config["dependencies"][0]).Vault
-        vault = guardian.deploy(Vault)
-        vault.initialize(token, gov, rewards, "", "", guardian, management)
-        vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
-        vault.setManagement(management, {"from": gov})
-        vault.setManagementFee(0, {"from": gov})
-        vault.setPerformanceFee(1_000, {"from": gov})
+    # if (currencyID == 4) :
+    #     strat_reduce = Contract("0xb85413f6d07454828eAc7E62df7d847316475178")
+    #     new_dr = int(vault.strategies(strat_reduce)["debtRatio"] / 2)
+    #     vault.updateStrategyDebtRatio(strat_reduce, new_dr, {"from":vault.governance()})
+    #     strat_reduce.harvest({"from": vault.governance()})
+    # elif currencyID == 1:
+    Vault = pm(config["dependencies"][0]).Vault
+    vault = guardian.deploy(Vault)
+    vault.initialize(token, gov, rewards, "", "", guardian, management)
+    vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
+    vault.setManagement(management, {"from": gov})
+    vault.setManagementFee(0, {"from": gov})
+    vault.setPerformanceFee(1_000, {"from": gov})
 
     yield vault
 

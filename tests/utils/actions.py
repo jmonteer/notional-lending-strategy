@@ -22,7 +22,7 @@ def wait_until_settlement(next_settlement):
 
 def wait_half_until_settlement(next_settlement):
     delta = next_settlement - chain.time()
-    chain.sleep(int(delta / 2))
+    chain.sleep(int(delta / 4))
     chain.mine(1)
     return
 

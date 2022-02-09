@@ -311,4 +311,40 @@ def test_maturity_harvest(
     
     vault.withdraw({"from": user})
 
+def test_profitable_before_maturity(
+    chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX, MAX_BPS,
+    n_proxy_views, n_proxy_batch, currencyID, n_proxy_implementation, gov, token_whale, n_proxy_account, 
+    million_in_token
+):
+    # Deposit to the vault
+    initial_balance = token.balanceOf(vault.address)
+
+    actions.user_deposit(user, vault, token, amount)
+    min_market_index = utils.get_min_market_index(strategy, currencyID, n_proxy_views)
     
+    # Harvest 1: Send funds through the strategy
+    chain.sleep(1)
+
+    amount_invested = vault.creditAvailable({"from":strategy})
+    strategy.harvest({"from": strategist})
+
+    total_assets = strategy.estimatedTotalAssets()
+
+    account = n_proxy_views.getAccount(strategy)
+    next_settlement = account[0][0]
+
+    actions.wait_until_settlement(next_settlement)
+
+    assert strategy.estimatedTotalAssets() > amount_invested
+
+    strategy.setToggleRealizeProfits(True, {"from": vault.governance()})
+    vault.updateStrategyDebtRatio(strategy, 0, {"from": gov})
+    strategy.setDoHealthCheck(False, {"from": gov})
+    tx = strategy.harvest({"from": vault.governance()})
+
+    assert n_proxy_views.getAccount(strategy)[2] == []
+    assert vault.strategies(strategy)["totalDebt"] == 0
+    assert vault.strategies(strategy)["totalGain"] > 0
+
+    chain.mine(1, timedelta=6 * 3_600)
+

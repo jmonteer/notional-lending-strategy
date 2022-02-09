@@ -98,7 +98,7 @@ def test_force_migration(
         )
 
 
-    tx = strategy.liquidateAmount(liquidate_half, {"from":gov})
+    tx = strategy.liquidateWantAmount(liquidate_half, {"from":gov})
     new_account = n_proxy_views.getAccount(strategy)
 
     assert pytest.approx((account[2][0][3] - new_account[2][0][3]), rel=RELATIVE_APPROX) == fCash_to_close
@@ -135,3 +135,90 @@ def test_force_migration(
     assert want_balance_end > amount_invested
 
     chain.mine(1, timedelta=3_600 * 6)
+
+def test_force_liquidations(
+    chain,
+    token,
+    vault,
+    strategy,
+    amount,
+    Strategy,
+    strategist,
+    gov,
+    user,
+    RELATIVE_APPROX,
+    notional_proxy, 
+    currencyID,
+    n_proxy_views,
+    MAX_BPS
+):
+    # Deposit to the vault and harvest
+    actions.user_deposit(user, vault, token, amount)
+
+    chain.sleep(1)
+    strategy.harvest({"from": gov})
+    amount_invested = vault.strategies(strategy)["totalDebt"]
+    min_market_index = utils.get_min_market_index(strategy, currencyID, n_proxy_views)
+    
+    first_assets = strategy.estimatedTotalAssets()
+    account = n_proxy_views.getAccount(strategy)
+    fCash_balance = account[2][0][3]
+    fCash_to_close = int(fCash_balance / 10)
+
+    chain.mine(1, timedelta=3*86_400)
+
+    tx = strategy.liquidatefCashAmount(min_market_index, fCash_to_close, {"from": gov})
+    new_account = n_proxy_views.getAccount(strategy)
+
+    assert (fCash_balance - new_account[2][0][3]) == fCash_to_close
+
+    chain.mine(1, timedelta=2*86_400)
+    tx = strategy.liquidatefCashAmount(min_market_index, (fCash_balance - fCash_to_close), {"from":gov})
+    new_account = n_proxy_views.getAccount(strategy)
+
+    assert new_account[2] == []
+
+    chain.mine(1, timedelta=6 * 3_600)
+
+def test_emergency_exit(
+    chain,
+    token,
+    vault,
+    strategy,
+    amount,
+    Strategy,
+    strategist,
+    gov,
+    user,
+    RELATIVE_APPROX,
+    notional_proxy, 
+    currencyID,
+    n_proxy_views,
+    MAX_BPS
+):
+
+    # Deposit to the vault and harvest
+    actions.user_deposit(user, vault, token, amount)
+
+    chain.sleep(1)
+    strategy.harvest({"from": gov})
+    amount_invested = vault.strategies(strategy)["totalDebt"]
+    min_market_index = utils.get_min_market_index(strategy, currencyID, n_proxy_views)
+    
+
+    chain.mine(1, timedelta=3*86_400)
+
+    first_assets = strategy.estimatedTotalAssets()
+    strategy.setDoHealthCheck(False, {"from":gov})
+    strategy.setEmergencyExit({"from":gov})
+
+    tx = strategy.harvest({"from":gov})
+
+    account = n_proxy_views.getAccount(strategy)
+    assert account[2] == []
+
+    assert token.balanceOf(strategy) == 0
+
+    chain.mine(1, timedelta=6*3_600)
+    
+

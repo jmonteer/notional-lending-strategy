@@ -61,6 +61,8 @@ contract Strategy is BaseStrategy {
     bytes4 internal constant ERC1155_ACCEPTED = bytes4(keccak256("onERC1155Received(address,address,uint256,uint256,bytes)"));
     // To control when positions should be liquidated before maturity or not (and thus incur in losses)
     bool internal toggleRealizeLosses;
+    // To control when positions should be liquidated before maturity or not (realizing profits)
+    bool internal toggleRealizeProfits;
     // To control whether migrations try to get positions out of notional
     bool internal forceMigration;
     // Base for percentage calculations. BPS (10000 = 100%, 100 = 1%)
@@ -266,6 +268,25 @@ contract Strategy is BaseStrategy {
 
     /*
      * @notice
+     *  Getter function for the toggle defining whether to realize profits or not
+     * @return bool, current toggleRealizeProfits state variable
+     */
+    function getToggleRealizeProfits() external view returns(bool) {
+        return toggleRealizeProfits;
+    }
+
+    /*
+     * @notice
+     *  Setter function for the toggle defining whether to realize profits or not
+     * only accessible to vault managers
+     * @param _newToggle, new booelan value for the toggle
+     */
+    function setToggleRealizeProfits(bool _newToggle) external onlyVaultManagers {
+        toggleRealizeProfits = _newToggle;
+    }
+
+    /*
+     * @notice
      *  Getter function for the forceMigration defining whether to try to migrate Notional positions or not
      * @return bool, current forceMigration state variable
      */
@@ -352,12 +373,13 @@ contract Strategy is BaseStrategy {
         // free funds to repay debt + profit to the strategy
         uint256 wantBalance = balanceOfWant();
         
-        // If we cannot realize the profit using want balance, don't report a profit to avoid
-        // closing active positions before maturity
-        if (_profit > wantBalance) {
+        // If we cannot realize the profit using want balance and the toggle is set to False, 
+        // don't report a profit to avoid closing active positions before maturity
+        if (_profit > wantBalance && !toggleRealizeProfits) {
             _profit = 0;
         }
         uint256 amountRequired = _debtOutstanding.add(_profit);
+        
         if(amountRequired > wantBalance) {
             // we need to free funds
             // NOTE: liquidatePosition will try to use balanceOfWant first
@@ -367,7 +389,7 @@ contract Strategy is BaseStrategy {
             uint256 realisedLoss = 0;
 
             // If the toggle to realize losses is off, do not close any position
-            if(toggleRealizeLosses) {
+            if(toggleRealizeLosses || toggleRealizeProfits) {
                 (amountAvailable, realisedLoss) = liquidatePosition(amountRequired);
             }
             _loss = realisedLoss;
@@ -376,6 +398,7 @@ contract Strategy is BaseStrategy {
                 // There are no realisedLosses, debt is paid entirely and 
                 // profit is defined in line 299 and 306
                 _debtPayment = _debtOutstanding;
+                _profit = amountAvailable.sub(_debtOutstanding);
             } else {
                 // We were not able to free enough funds
                 if(amountAvailable < _debtOutstanding) {
@@ -528,8 +551,53 @@ contract Strategy is BaseStrategy {
      * @return uint256 liquidatedAmount, Amount freed
      * @return uint256 loss, Losses incurred due to early closing of positions
      */
-    function liquidateAmount(uint256 amountToLiquidate) external onlyVaultManagers returns(uint256 liquidatedAmount, uint256 loss) {
+    function liquidateWantAmount(uint256 amountToLiquidate) external onlyVaultManagers returns(uint256 liquidatedAmount, uint256 loss) {
         (liquidatedAmount, loss) = liquidatePosition(amountToLiquidate);
+    }
+
+    /*
+     * @notice
+     *  External function for vault managers to manually liquidate a specific amount in fCash amount
+     * @param marketIndex, The market for which to close fCash positions
+     * @param amountToLiquidate, The total amount of fCash needed to liberate
+     * @return uint256 liquidatedAmount, Amount freed
+     * @return uint256 loss, Losses incurred due to early closing of positions
+     */
+    function liquidatefCashAmount(
+        uint256 marketIndex,
+        uint256 amountToLiquidate
+        ) external onlyVaultManagers returns(uint256 liquidatedAmount) {
+        
+        liquidatedAmount = _liquidatefCashAmount(marketIndex, amountToLiquidate);
+    }
+
+    /*
+     * @notice
+     *  Internal function to liquidate a specific amount in fCash amount
+     * @param marketIndex, The market for which to close fCash positions
+     * @param amountToLiquidate, The total amount of fCash needed to liberate
+     * @return uint256 liquidatedAmount, Amount freed
+     * @return uint256 loss, Losses incurred due to early closing of positions
+     */
+    function _liquidatefCashAmount(
+        uint256 marketIndex,
+        uint256 amountToLiquidate
+        ) internal returns(uint256 liquidatedAmount) {
+        // Current want balance
+        uint256 wantBalance = balanceOfWant();
+        // Create the borrow trade using the market_index and amountToLiquidate
+        bytes32[] memory trades = new bytes32[](1);
+        trades[0] = getTradeFrom(TRADE_TYPE_BORROW, marketIndex, amountToLiquidate);
+        // Execute the trade action
+        executeBalanceActionWithTrades(
+            DepositActionType.None, 
+            0,
+            0,
+            trades
+        );
+
+        liquidatedAmount = balanceOfWant().sub(wantBalance);
+        
     }
 
     /*
@@ -553,22 +621,18 @@ contract Strategy is BaseStrategy {
         
         // Get current position's P&L
         (, uint256 unrealisedLosses) = getUnrealisedPL();
-        
         // We only need to withdraw what we don't currently have
         uint256 amountToLiquidate = _amountNeeded.sub(wantBalance);
-        
         // Losses are realised IFF we withdraw from the position, as they will come from breaking our "promise"
         // of lending at a certain %
         // The strategy will only realise losses proportional to the amount we are liquidating
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         
         uint256 lossesToBeRealised = unrealisedLosses.mul(amountToLiquidate).div(totalDebt.sub(wantBalance));
-
         // Due to how Notional works, we need to substract losses from the amount to liquidate
         // If we don't do this and withdraw a small enough % of position, we will not incur in losses,
         // leaving them for the future withdrawals (which is bad! those who withdraw should take the losses)
         amountToLiquidate = amountToLiquidate.sub(lossesToBeRealised);
-
         // Retrieve info of portfolio (summary of our position/s)
         PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
         // The maximum amount of trades we are doing is the number of terms (aka markets) we are in
@@ -650,13 +714,14 @@ contract Strategy is BaseStrategy {
 
         // Assess result 
         uint256 totalAssets = balanceOfWant();
+
         if (_amountNeeded > totalAssets) {
             _liquidatedAmount = totalAssets;
             // _loss should be equal to lossesToBeRealised ! 
             _loss = _amountNeeded.sub(totalAssets);
             
         } else {
-            _liquidatedAmount = _amountNeeded;
+            _liquidatedAmount = totalAssets;
         }
 
         // Re-set the toggle to false
@@ -668,11 +733,23 @@ contract Strategy is BaseStrategy {
      *  Internal function used in emergency to close all active positions and liberate all assets
      * @return uint256 amountLiquidated, the total amount liquidated
      */
-    function liquidateAllPositions() internal override returns (uint256) {
-        
-        (uint256 amountLiquidated, ) = liquidatePosition(estimatedTotalAssets());
-
-        return amountLiquidated;
+    function liquidateAllPositions() internal override returns (uint256 amountLiquidated) {
+        // Check any mature positions and settle them into want tokens
+        _checkPositionsAndWithdraw();
+        // Include want
+        uint256 wantBalance = balanceOfWant();
+        // Loop through active positions and close them
+        PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
+        for(uint256 i; i < _accountPortfolio.length; i++) {
+            uint256 _marketIndex = _getMarketIndexForMaturity(
+                    _accountPortfolio[i].maturity
+                );
+            amountLiquidated += _liquidatefCashAmount(
+                _marketIndex,
+                uint256(_accountPortfolio[i].notional)
+                );
+        }
+        return amountLiquidated.add(wantBalance);
     }
     
     /*

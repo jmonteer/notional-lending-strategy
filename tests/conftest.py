@@ -90,8 +90,8 @@ token_addresses = {
 # TODO: uncomment those tokens you want to test as want
 @pytest.fixture(
     params=[
-        'WBTC', # WBTC
-        "WETH",  # WETH
+        # 'WBTC', # WBTC
+        # "WETH",  # WETH
         'DAI', # DAI
         'USDC', # USDC
     ],
@@ -112,7 +112,7 @@ thresholds = {
     "WETH": (1000e18, -500e8),
     "DAI": (50e24, -50e14),
     "WBTC": (60e8, -60e8),
-    "USDC": (60e12, -60e14),
+    "USDC": (50e12, -50e14),
 }
 
 live_vaults = {

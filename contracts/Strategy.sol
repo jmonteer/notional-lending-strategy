@@ -386,15 +386,13 @@ contract Strategy is BaseStrategy {
             // liquidatePosition will realise Losses if required !! (which cannot be equal to unrealised losses if
             // we are not withdrawing 100% of position)
             uint256 amountAvailable = wantBalance;
-            uint256 realisedLoss = 0;
 
             // If the toggle to realize losses is off, do not close any position
             // Also, if we want to close an active position before maturity that will report profits, use
             // toggleRealizeProfits to be able to liquidate
             if(toggleRealizeLosses || toggleRealizeProfits) {
-                (amountAvailable, realisedLoss) = liquidatePosition(amountRequired);
+                (amountAvailable, _loss) = liquidatePosition(amountRequired);
             }
-            _loss = realisedLoss;
             
             if(amountAvailable >= amountRequired) {
                 // There are no realisedLosses, debt is paid entirely and 
@@ -451,7 +449,8 @@ contract Strategy is BaseStrategy {
         // If the new position enters a different market than the current maturity, roll the current position into
         // the next maturity market
         if(minMarketMaturity > _maturity && _maturity > 0) {
-            availableWantBalance += _rollOverTrade(_maturity);
+            _rollOverTrade(_maturity);
+            availableWantBalance = balanceOfWant();
         }
 
         if (_currencyID == ONE) {
@@ -1080,15 +1079,15 @@ contract Strategy is BaseStrategy {
      * @return uint256, liberated amount, now existing in want balance to add up to the availableWantBalance
      * to trade into in adjustPosition()
      */
-    function _rollOverTrade(uint256 _currentMaturity) internal returns(uint256) {
-        uint256 prevBalance = balanceOfWant();
+    function _rollOverTrade(uint256 _currentMaturity) internal {
+        
         PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
         uint256 _currentIndex = _getMarketIndexForMaturity(_currentMaturity);
 
         // Handle case where there was no success finding an available market
         if (_currentIndex == 0) {
             // We have not liberated any amount of want
-            return 0;
+            return;
         }
         
         bytes32[] memory rollTrade = new bytes32[](1);
@@ -1099,8 +1098,7 @@ contract Strategy is BaseStrategy {
             0,
             rollTrade
         );
-        
-        return (balanceOfWant() - prevBalance);
+
     }
 
 }

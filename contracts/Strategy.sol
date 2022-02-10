@@ -68,7 +68,7 @@ contract Strategy is BaseStrategy {
     // Base for percentage calculations. BPS (10000 = 100%, 100 = 1%)
     uint256 private constant MAX_BPS = 10_000;
     // Constant to handle weth/eth currencyID case (notional uses eth but vault provides weth)
-    uint256 private constant ONE = 1;
+    uint256 private constant WETH = 1;
     // Constants identifying the types of trades following Notional's internal notation defined in TradeActionType
     // struct in Types.sol interface
     uint8 private TRADE_TYPE_LEND = 0;
@@ -157,7 +157,7 @@ contract Strategy is BaseStrategy {
         forceMigration = false;
 
         // Check whether the currency is set up right
-        if (_currencyID == ONE) {
+        if (_currencyID == WETH) {
             require(address(0) == underlying.tokenAddress); 
         } else {
             require(address(want) == underlying.tokenAddress);
@@ -480,7 +480,7 @@ contract Strategy is BaseStrategy {
             availableWantBalance = balanceOfWant();
         }
 
-        if (_currencyID == ONE) {
+        if (_currencyID == WETH) {
             // Only necessary for wETH/ ETH pair
             weth.withdraw(availableWantBalance);
         } else {
@@ -812,7 +812,7 @@ contract Strategy is BaseStrategy {
      * @param assetType Type of asset to transfer (nToken or fCash)
      * @param position amount of asset type to send to the receiving address
      */
-     function transferMarket(address to, uint40 positionMaturity, uint8 assetType, uint256 position) external onlyVaultManagers {
+     function transferMarket(address to, uint40 positionMaturity, uint8 assetType, uint256 position) external onlyGovernance {
         _transferMarket(to, positionMaturity, assetType, position);
     }
 
@@ -965,7 +965,7 @@ contract Strategy is BaseStrategy {
 
             if(cashBalance > 0) {
                 nProxy.withdraw(currencyID, uint88(cashBalance), true);
-                if (currencyID == ONE) {
+                if (currencyID == WETH) {
                     // Only necessary for wETH/ ETH pair
                     weth.deposit{value: address(this).balance}();
                 }
@@ -1088,7 +1088,7 @@ contract Strategy is BaseStrategy {
             _trades
         );
 
-        if (_currencyID == ONE) {
+        if (_currencyID == WETH) {
             nProxy.batchBalanceAndTradeAction{value: _depositActionAmount}(address(this), _actions);
             weth.deposit{value: address(this).balance}();
         } else {

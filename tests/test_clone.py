@@ -1,13 +1,35 @@
 from utils import actions, checks, utils
 import pytest
+from brownie import reverts
 
 # tests harvesting a strategy that returns profits correctly
 def test_clone(
     chain, accounts, token, vault, strategy, cloned_strategy, user, strategist, amount, RELATIVE_APPROX, MAX_BPS,
-    n_proxy_views, n_proxy_batch, currencyID, n_proxy_implementation, gov
+    n_proxy_views, n_proxy_batch, currencyID, n_proxy_implementation, gov, ONEk_WANT
 ):
     # Deposit to the vault
     actions.user_deposit(user, vault, token, amount);
+
+    # Check that strategy cannot be initialized twice
+    with reverts():
+        strategy.initialize(
+            vault, 
+            strategist, 
+            strategist, 
+            strategist, 
+            n_proxy_views.address, 
+            currencyID,
+            ONEk_WANT, {"from": gov})
+    # Check that cloned strategy cannot be initialized twice
+    with reverts():
+        cloned_strategy.initialize(
+            vault, 
+            strategist, 
+            strategist, 
+            strategist, 
+            n_proxy_views.address, 
+            currencyID,
+            ONEk_WANT, {"from": gov})
 
     # Check both strategies
     assert strategy.currencyID() == cloned_strategy.currencyID()

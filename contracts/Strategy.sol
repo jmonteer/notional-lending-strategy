@@ -389,6 +389,8 @@ contract Strategy is BaseStrategy {
             uint256 realisedLoss = 0;
 
             // If the toggle to realize losses is off, do not close any position
+            // Also, if we want to close an active position before maturity that will report profits, use
+            // toggleRealizeProfits to be able to liquidate
             if(toggleRealizeLosses || toggleRealizeProfits) {
                 (amountAvailable, realisedLoss) = liquidatePosition(amountRequired);
             }

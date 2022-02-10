@@ -16,7 +16,8 @@ def test_force_migration(
     notional_proxy, 
     currencyID,
     n_proxy_views,
-    MAX_BPS
+    MAX_BPS,
+    ONEk_WANT
 ):
     # Deposit to the vault and harvest
     actions.user_deposit(user, vault, token, amount)
@@ -28,7 +29,7 @@ def test_force_migration(
     
     first_assets = strategy.estimatedTotalAssets()
     # migrate to a new strategy
-    new_strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID)
+    new_strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, ONEk_WANT)
     
     chain.mine(1, timedelta= 86_400)
 

@@ -16,7 +16,8 @@ def test_migration(
     RELATIVE_APPROX,
     notional_proxy, 
     currencyID,
-    n_proxy_views
+    n_proxy_views,
+    ONEk_WANT
 ):  
     # Deposit to the vault and harvest
     actions.user_deposit(user, vault, token, amount)
@@ -27,7 +28,7 @@ def test_migration(
     
     first_assets = strategy.estimatedTotalAssets()
     # migrate to a new strategy
-    new_strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID)
+    new_strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, ONEk_WANT)
 
     vault.migrateStrategy(strategy, new_strategy, {"from": gov})
     assert new_strategy.estimatedTotalAssets() >= first_assets
@@ -39,7 +40,7 @@ def test_migration(
     chain.sleep(next_settlement - chain.time() + 1)
     chain.mine(1)
 
-    new_new_strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID)
+    new_new_strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, ONEk_WANT)
     vault.migrateStrategy(new_strategy, new_new_strategy, {"from": gov})
 
     assert new_strategy.estimatedTotalAssets() == 0

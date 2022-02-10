@@ -73,6 +73,8 @@ contract Strategy is BaseStrategy {
     // struct in Types.sol interface
     uint8 private TRADE_TYPE_LEND = 0;
     uint8 private TRADE_TYPE_BORROW = 1;
+    // Credit available threshold to consider harvesting the strategy
+    uint256 public MIN_AMOUNT_HARVEST = 0;
     // Current maturity invested
     uint256 private maturity;
 
@@ -93,9 +95,10 @@ contract Strategy is BaseStrategy {
     constructor(
         address _vault,
         NotionalProxy _nProxy,
-        uint16 _currencyID    
+        uint16 _currencyID   ,
+        uint256 _minAmountHarvest 
     ) public BaseStrategy (_vault) {
-        _initializeNotionalStrategy(_nProxy, _currencyID);
+        _initializeNotionalStrategy(_nProxy, _currencyID, _minAmountHarvest);
     }
 
     /*
@@ -117,10 +120,11 @@ contract Strategy is BaseStrategy {
         address _rewards,
         address _keeper,
         NotionalProxy _nProxy,
-        uint16 _currencyID
+        uint16 _currencyID,
+        uint256 _minAmountHarvest
     ) external {
         _initialize(_vault, _strategist, _rewards, _keeper);
-        _initializeNotionalStrategy(_nProxy, _currencyID);
+        _initializeNotionalStrategy(_nProxy, _currencyID, _minAmountHarvest);
     }
 
     /*
@@ -134,13 +138,17 @@ contract Strategy is BaseStrategy {
      */
     function _initializeNotionalStrategy (
         NotionalProxy _nProxy,
-        uint16 _currencyID
+        uint16 _currencyID,
+        uint256 _minAmountHarvest
     ) internal {
         currencyID = _currencyID;
         nProxy = _nProxy;
 
         (Token memory assetToken, Token memory underlying) = _nProxy.getCurrency(_currencyID);
         DECIMALS_DIFFERENCE = uint256(underlying.decimals).mul(MAX_BPS).div(uint256(assetToken.decimals));
+        
+        // Assign the minimum credit available to consider for harvesting
+        MIN_AMOUNT_HARVEST = _minAmountHarvest;
         
         // By default do not realize losses
         toggleRealizeLosses = false;
@@ -179,7 +187,8 @@ contract Strategy is BaseStrategy {
         address _rewards,
         address _keeper,
         NotionalProxy _nProxy,
-        uint16 _currencyID
+        uint16 _currencyID,
+        uint256 _minAmountHarvest
     ) external returns (address payable newStrategy) {
         // Copied from https://github.com/optionality/clone-factory/blob/master/contracts/CloneFactory.sol
         bytes20 addressBytes = bytes20(address(this));
@@ -193,7 +202,15 @@ contract Strategy is BaseStrategy {
             newStrategy := create(0, clone_code, 0x37)
         }
 
-        Strategy(newStrategy).initialize(_vault, _strategist, _rewards, _keeper, _nProxy, _currencyID);
+        Strategy(newStrategy).initialize(
+            _vault, 
+            _strategist, 
+            _rewards, 
+            _keeper, 
+            _nProxy, 
+            _currencyID,
+            _minAmountHarvest
+            );
 
         emit Cloned(newStrategy);
     }
@@ -330,6 +347,16 @@ contract Strategy is BaseStrategy {
      */
     function setMinAmountWant(uint16 _newMinAmount) external onlyVaultManagers {
         minAmountWant = _newMinAmount;
+    }
+
+    /*
+     * @notice
+     *  Setter function for the minimum amount credit available for the strategy to be harvested,
+     * used during harvestTrigger
+     * @param _newMinAmount, new minimum threshold to harvest
+     */
+    function setMinAmountHarvest(uint256 _newMinAmount) external onlyVaultManagers {
+        MIN_AMOUNT_HARVEST = _newMinAmount;
     }
 
     /*
@@ -885,11 +912,9 @@ contract Strategy is BaseStrategy {
             return _amount;
         }
 
-        (
-            Token memory assetToken,
+        (   ,
             Token memory underlyingToken,
             ETHRate memory ethRate,
-            AssetRateParameters memory assetRate
         ) = nProxy.getCurrencyAndRates(currencyID);
             
         return _amount.mul(uint256(underlyingToken.decimals)).div(uint256(ethRate.rate));
@@ -903,8 +928,8 @@ contract Strategy is BaseStrategy {
      * @return bool, true when the strategy has a mature position
      */
     function harvestTrigger(uint256 callCostInWei) public view override returns (bool) {
-        // Check is there is credit available for the strategy to invest
-        if (vault.creditAvailable() > 0) {
+        // Check is there is enough credit available for the strategy to invest
+        if (vault.creditAvailable() > MIN_AMOUNT_HARVEST) {
             return true;
         }
 
@@ -915,6 +940,8 @@ contract Strategy is BaseStrategy {
         if (uint256(_accountContext.nextSettleTime) < block.timestamp && uint256(_accountContext.nextSettleTime) > 0) {
             return true;
         }
+
+        // In any other case we do not trigger a harvest
         return false;
     }
 
@@ -934,9 +961,7 @@ contract Strategy is BaseStrategy {
         if (uint256(_accountContext.nextSettleTime) < block.timestamp) {
             nProxy.settleAccount(address(this));
 
-            (int256 cashBalance, 
-            int256 nTokenBalance,
-            uint256 lastClaimTime) = nProxy.getAccountBalance(currencyID, address(this));
+            (int256 cashBalance,,) = nProxy.getAccountBalance(currencyID, address(this));
 
             if(cashBalance > 0) {
                 nProxy.withdraw(currencyID, uint88(cashBalance), true);

@@ -170,6 +170,12 @@ def amount(token, token_whale, user):
     token.transfer(user, amount, {"from": token_whale})
     yield amount
 
+@pytest.fixture()
+def ONEk_WANT(token):
+    onek = round(1_000 / token_prices[token.symbol()])
+    amount = onek * 10 ** token.decimals()
+    yield amount
+
 @pytest.fixture(autouse=True)
 def million_in_token(token):
     yield round(1e6 / token_prices[token.symbol()]) * 10 ** token.decimals()
@@ -221,8 +227,8 @@ def live_vault(registry, token):
 
 
 @pytest.fixture
-def strategy(strategist, keeper, vault, rewards, Strategy, gov, notional_proxy, currencyID):
-    strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID)
+def strategy(strategist, keeper, vault, rewards, Strategy, gov, notional_proxy, currencyID, ONEk_WANT):
+    strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, ONEk_WANT)
     # strategy = Contract("0x873ac3704231E7835AdC96d5D6533ff56be80818")
     
     strategy.setKeeper(keeper)
@@ -235,7 +241,8 @@ def strategy(strategist, keeper, vault, rewards, Strategy, gov, notional_proxy, 
 
 
 @pytest.fixture
-def cloned_strategy(Strategy, vault, strategy, strategist, rewards, keeper, notional_proxy, currencyID, gov):
+def cloned_strategy(Strategy, vault, strategy, strategist, rewards, keeper, notional_proxy,
+ currencyID, gov, ONEk_WANT):
     cloned_strategy = strategy.cloneStrategy(
         vault,
         strategist,
@@ -243,6 +250,7 @@ def cloned_strategy(Strategy, vault, strategy, strategist, rewards, keeper, noti
         keeper,
         notional_proxy,
         currencyID,
+        ONEk_WANT,
         {"from": strategist}
     ).return_value
     cloned_strategy = Strategy.at(cloned_strategy)

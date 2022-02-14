@@ -4,23 +4,15 @@ pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
 
 // Necessary interfaces to:
-// 1) interact with the Notional protocol
+// 1) Interact with the Notional protocol
 import "../interfaces/notional/NotionalProxy.sol";
 // 2) Transact between WETH (Vault) and ETH (Notional)
 import "../interfaces/IWETH.sol";
 
 
 // These are the core Yearn libraries
-import {
-    BaseStrategy,
-    StrategyParams
-} from "@yearnvaults/contracts/BaseStrategy.sol";
-import {
-    SafeERC20,
-    SafeMath,
-    IERC20,
-    Address
-} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@yearnvaults/contracts/BaseStrategy.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
 import "@openzeppelin/contracts/math/Math.sol";
 
@@ -45,15 +37,15 @@ contract Strategy is BaseStrategy {
 
     // NotionalContract: proxy that points to a router with different implementations depending on function 
     NotionalProxy public nProxy;
-    // ID of the asset being lent in Notional
+    // Internal ID of the asset being lent in Notional
     uint16 public currencyID; 
     // Difference of decimals between Notional system (8) and want
     uint256 public DECIMALS_DIFFERENCE;
     // Scaling factor for entering positions as the fcash estimations have rounding errors
     uint256 internal constant FCASH_SCALING = 9_995;
-    // minimum maturity for the market to enter
+    // Minimum maturity for the market to enter
     uint256 private minTimeToMaturity;
-    // minimum amount of want to act on
+    // Minimum amount of want to act on
     uint16 public minAmountWant;
     // Initialize WETH interface
     IWETH public constant weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
@@ -71,8 +63,8 @@ contract Strategy is BaseStrategy {
     uint256 private constant WETH = 1;
     // Constants identifying the types of trades following Notional's internal notation defined in TradeActionType
     // struct in Types.sol interface
-    uint8 private TRADE_TYPE_LEND = 0;
-    uint8 private TRADE_TYPE_BORROW = 1;
+    uint8 private constant TRADE_TYPE_LEND = 0;
+    uint8 private constant TRADE_TYPE_BORROW = 1;
     // Credit available threshold to consider harvesting the strategy
     uint256 public MIN_AMOUNT_HARVEST = 0;
     // Current maturity invested
@@ -91,6 +83,8 @@ contract Strategy is BaseStrategy {
      * 2 - DAI
      * 3 - USDC
      * 4 - WBTC
+     * @param _minAmountHarvest Minimum credit available from the vault to consider harvsting the 
+     * strategy
      */
     constructor(
         address _vault,
@@ -113,6 +107,8 @@ contract Strategy is BaseStrategy {
      * 2 - DAI
      * 3 - USDC
      * 4 - WBTC
+     * @param _minAmountHarvest Minimum credit available from the vault to consider harvsting the 
+     * strategy
      */
     function initialize(
         address _vault,
@@ -135,6 +131,8 @@ contract Strategy is BaseStrategy {
      * 2 - DAI
      * 3 - USDC
      * 4 - WBTC
+     * @param _minAmountHarvest Minimum credit available from the vault to consider harvsting the 
+     * strategy
      */
     function _initializeNotionalStrategy (
         NotionalProxy _nProxy,
@@ -180,6 +178,8 @@ contract Strategy is BaseStrategy {
      * 2 - DAI
      * 3 - USDC
      * 4 - WBTC
+     * @param _minAmountHarvest Minimum credit available from the vault to consider harvsting the 
+     * strategy
      */
     function cloneStrategy(
         address _vault,
@@ -422,8 +422,7 @@ contract Strategy is BaseStrategy {
             }
             
             if(amountAvailable >= amountRequired) {
-                // There are no realisedLosses, debt is paid entirely and 
-                // profit is defined in line 299 and 306
+                // There are no realisedLosses, debt is paid entirely
                 _debtPayment = _debtOutstanding;
                 _profit = amountAvailable.sub(_debtOutstanding);
             } else {
@@ -432,8 +431,8 @@ contract Strategy is BaseStrategy {
                     // available funds are lower than the repayment that we need to do
                     _profit = 0;
                     _debtPayment = amountAvailable;
-                    // we dont report losses here as the strategy might not be able to return in this harvest
-                    // but it will still be there for the next harvest
+                    // loss amount is not calculated here as it comes from the liquidate position assessment
+                    // if the toggle was set positions are freed if not, but it could be done in the next harvest
                 } else {
                     // NOTE: amountRequired is always equal or greater than _debtOutstanding
                     // important to use amountRequired just in case amountAvailable is > amountAvailable

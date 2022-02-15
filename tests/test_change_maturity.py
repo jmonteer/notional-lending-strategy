@@ -5,7 +5,7 @@ import pytest
 def test_change_maturity(
     chain, accounts, token, vault, strategy, user, strategist, amount, RELATIVE_APPROX, MAX_BPS,
     n_proxy_views, n_proxy_batch, currencyID, n_proxy_implementation, token_whale, n_proxy_account,
-    million_in_token
+    million_in_token, gov
 ):
     # Deposit to the vault
     actions.user_deposit(user, vault, token, int(amount / 2))
@@ -16,7 +16,7 @@ def test_change_maturity(
     # Shortest market possible
     strategy.setMinTimeToMaturity(0, {"from": vault.governance()})
     # Funds flow through the strategy
-    tx = strategy.harvest()
+    tx = strategy.harvest({"from":gov})
     account = n_proxy_views.getAccount(strategy)
     next_settlement = account[0][0]
 
@@ -26,7 +26,7 @@ def test_change_maturity(
     strategy.setMinTimeToMaturity(30 * 86400, {"from": vault.governance()})
     actions.wait_until_settlement(next_settlement)
     # Funds flow to Notional
-    tx2 = strategy.harvest()
+    tx2 = strategy.harvest({"from":gov})
     account = n_proxy_views.getAccount(strategy)
 
     amount_invested = vault.strategies(strategy)["totalDebt"]
@@ -43,7 +43,7 @@ def test_change_maturity(
     account = n_proxy_views.getAccount(strategy)
     vault.updateStrategyDebtRatio(strategy, 0, {"from":vault.governance()})
     strategy.setDoHealthCheck(False, {"from": vault.governance()})
-    tx3 = strategy.harvest()
+    tx3 = strategy.harvest({"from":gov})
 
     assert tx3.events["Harvested"]["profit"] >= (account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS - amount_invested)
     chain.sleep(6 * 3600)

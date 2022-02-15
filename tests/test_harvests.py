@@ -24,6 +24,7 @@ def test_profitable_harvest(
         min_market_index,
         chain.time()
         )
+    
     strategy.harvest({"from": strategist})
 
     account = n_proxy_views.getAccount(strategy)
@@ -75,7 +76,6 @@ def test_profitable_harvest(
     # Harvest 3: Remove funds to pay the debt's vault - should remove a total of 'amount' between token and reported 
     # loss
     strategy.setToggleRealizeLosses(True, {"from":gov})
-
     tx2 = strategy.harvest({"from":gov})
 
     account = n_proxy_views.getAccount(strategy)
@@ -332,7 +332,7 @@ def test_profitable_before_maturity(
 
     account = n_proxy_views.getAccount(strategy)
     next_settlement = account[0][0]
-
+    
     actions.wait_until_settlement(next_settlement)
 
     assert strategy.estimatedTotalAssets() > amount_invested

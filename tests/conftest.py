@@ -90,8 +90,8 @@ token_addresses = {
 # TODO: uncomment those tokens you want to test as want
 @pytest.fixture(
     params=[
-        'WBTC', # WBTC
-        "WETH",  # WETH
+        # 'WBTC', # WBTC
+        # "WETH",  # WETH
         'DAI', # DAI
         'USDC', # USDC
     ],
@@ -161,7 +161,7 @@ token_prices = {
 @pytest.fixture(autouse=True)
 def amount(token, token_whale, user):
     # this will get the number of tokens (around $100k worth of token)
-    amillion = round(100_000 / token_prices[token.symbol()])
+    amillion = round(1_000_000 / token_prices[token.symbol()])
     amount = amillion * 10 ** token.decimals()
     # In order to get some funds for the token you are about to use,
     # it impersonate a whale address
@@ -229,10 +229,22 @@ def live_vault(registry, token):
 @pytest.fixture
 def strategy(strategist, keeper, vault, rewards, Strategy, gov, notional_proxy, currencyID, ONEk_WANT):
     strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, ONEk_WANT)
-    # strategy = Contract("0x873ac3704231E7835AdC96d5D6533ff56be80818")
+    # strategy_deployed = Contract("0x1B7C21233Fd34d2ee328d16A4C46F1a26CD1dbfB")
     
-    strategy.setKeeper(keeper)
-    debtRatio = 500 if vault.debtRatio() <= 9_500 else 10_000 - vault.debtRatio()
+    strategy_address = strategy.cloneStrategy(
+        vault,
+        strategist,
+        rewards,
+        keeper,
+        notional_proxy,
+        currencyID,
+        ONEk_WANT,
+        {"from": vault.governance()}
+    ).return_value
+    strategy = Strategy.at(strategy_address)
+
+    # strategy.setKeeper(keeper)
+    debtRatio = 10000 if vault.debtRatio() <= 9_500 else 10_000 - vault.debtRatio()
     if currencyID == 1:
         debtRatio = int(debtRatio / 10)
     vault.addStrategy(strategy, debtRatio, 0, 2 ** 256 - 1, 1000, {"from": gov})
@@ -268,9 +280,9 @@ def withdraw_no_losses(vault, token, amount, user, currencyID, RELATIVE_APPROX):
         # check that we dont have previously realised losses
         # NOTE: this assumes deposit is `amount`
         if currencyID > 0:
-            assert pytest.approx(token.balanceOf(user), rel=RELATIVE_APPROX) == amount
-        else:
             assert token.balanceOf(user) >= amount
+        else:
+            assert pytest.approx(token.balanceOf(user), rel=RELATIVE_APPROX) == amount
         return
 
 

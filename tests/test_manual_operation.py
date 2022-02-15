@@ -123,7 +123,14 @@ def test_force_liquidations(
 
     assert new_account[2] == []
 
+    vault.updateStrategyDebtRatio(strategy, 0, {"from": gov})
+    strategy.setToggleRealizeLosses(True, {"from":gov})
+    strategy.setDoHealthCheck(False, {"from":gov})
+
+    tx = strategy.harvest({"from":gov})
     chain.mine(1, timedelta=6 * 3_600)
+
+    vault.withdraw({"from": user})
 
 def test_emergency_exit(
     chain,
@@ -165,4 +172,5 @@ def test_emergency_exit(
     assert token.balanceOf(strategy) == 0
 
     chain.mine(1, timedelta=6*3_600)
+    vault.withdraw({"from": user})
     

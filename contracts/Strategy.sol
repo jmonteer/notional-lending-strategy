@@ -986,7 +986,7 @@ contract Strategy is BaseStrategy {
         // Iterate over all active markets and sum value of each position 
         for(uint256 i = 0; i < _accountPortfolio.length; i++) {
             for(uint256 j = 0; j < _activeMarkets.length; j++){
-                if(_accountPortfolio[i].maturity < block.timestamp) {
+                if(_accountPortfolio[i].maturity <= block.timestamp) {
                     // Convert the fcash amount of the position to underlying assuming a 1:1 conversion rate
                     // (taking into account decimals difference)
                     _totalWantValue += uint256(_accountPortfolio[i].notional).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);

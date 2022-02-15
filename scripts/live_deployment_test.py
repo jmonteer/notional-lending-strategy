@@ -56,7 +56,8 @@ def main():
     currencyID = 3 # USDC
     token = Contract("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")  # USDC
     min_amount_harvest = amount_to_want(50_000, token)
-    initial_strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, min_amount_harvest)
+    # initial_strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, min_amount_harvest)
+    initial_strategy = Contract("0x0EeeBD67CfaE6a9E78433B301fc44C13Ba205bf6")
 
     print("#### Cloning strat for USDC ####")
     strategy_address = initial_strategy.cloneStrategy(

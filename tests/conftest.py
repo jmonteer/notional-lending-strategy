@@ -228,8 +228,8 @@ def live_vault(registry, token):
 
 @pytest.fixture
 def strategy(strategist, keeper, vault, rewards, Strategy, gov, notional_proxy, currencyID, ONEk_WANT):
-    strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, ONEk_WANT)
-    # strategy_deployed = Contract("0x1B7C21233Fd34d2ee328d16A4C46F1a26CD1dbfB")
+    # strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, ONEk_WANT)
+    strategy = Contract("0x0EeeBD67CfaE6a9E78433B301fc44C13Ba205bf6")
     
     strategy_address = strategy.cloneStrategy(
         vault,

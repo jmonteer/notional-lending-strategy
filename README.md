@@ -1,4 +1,6 @@
-# Yearn Strategy Brownie Mix
+# Yearn Notional Strategy
+
+Read more about the strategy here: https://hackmd.io/5k1cl5nOQNWIbzfLbduzrA
 
 ## What you'll find here
 

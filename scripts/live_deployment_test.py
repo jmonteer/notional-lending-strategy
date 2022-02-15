@@ -60,34 +60,36 @@ def main():
     initial_strategy = Contract("0x0EeeBD67CfaE6a9E78433B301fc44C13Ba205bf6")
 
     print("#### Cloning strat for USDC ####")
-    strategy_address = initial_strategy.cloneStrategy(
-        vault,
-        strategist,
-        strategist,
-        strategist,
-        notional_proxy,
-        currencyID,
-        min_amount_harvest,
-        {"from": vault.governance()}
-    ).return_value
-    strategy = Strategy.at(strategy_address)
+    # strategy_address = initial_strategy.cloneStrategy(
+    #     vault,
+    #     strategist,
+    #     strategist,
+    #     strategist,
+    #     notional_proxy,
+    #     currencyID,
+    #     min_amount_harvest,
+    #     {"from": vault.governance()}
+    # ).return_value
+    # strategy = Strategy.at(strategy_address)
+    strategy = Contract("0x9D42427830e617C7cf55050092E899569CeE0233")
 
     print("#### Cloning strat for DAI ####")
     currencyID_DAI = 2
     token_DAI = Contract("0x6B175474E89094C44Da98b954EedeAC495271d0F")  # DAI
     min_amount_harvest = amount_to_want(50_000, token_DAI)
     
-    strategy_address_DAI = strategy.cloneStrategy(
-        vault_DAI,
-        strategist,
-        strategist,
-        strategist,
-        notional_proxy,
-        currencyID_DAI,
-        min_amount_harvest,
-        {"from": vault.governance()}
-    ).return_value
-    strategy_DAI = Strategy.at(strategy_address_DAI)
+    # strategy_address_DAI = strategy.cloneStrategy(
+    #     vault_DAI,
+    #     strategist,
+    #     strategist,
+    #     strategist,
+    #     notional_proxy,
+    #     currencyID_DAI,
+    #     min_amount_harvest,
+    #     {"from": vault.governance()}
+    # ).return_value
+    # strategy_DAI = Strategy.at(strategy_address_DAI)
+    strategy_DAI = Contract("0x091ceD53A84dad18486Afc4d05F313116AEbEf74")
 
     free_up_vault(vault)
     free_up_vault_DAI(vault_DAI)

@@ -1051,7 +1051,7 @@ contract Strategy is BaseStrategy {
     function _getMinimumMarketIndex() internal view returns(uint256, uint256) {
         MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
         for(uint256 i = 0; i<_activeMarkets.length; i++) {
-            if (_activeMarkets[i].maturity - block.timestamp >= minTimeToMaturity) {
+            if (_activeMarkets[i].maturity.sub(block.timestamp) >= minTimeToMaturity) {
                 return (i+1, uint256(_activeMarkets[i].maturity));
             }
         }

@@ -472,6 +472,8 @@ contract Strategy is BaseStrategy {
 
         // Use the market index with the shortest maturity
         (uint256 minMarketIndex, uint256 minMarketMaturity) = _getMinimumMarketIndex();
+        // Adjust the current position we're invested in
+        maturity = minMarketMaturity;
         // If the new position enters a different market than the current maturity, roll the current position into
         // the next maturity market
         if(minMarketMaturity > _maturity && _maturity > 0) {
@@ -519,7 +521,6 @@ contract Strategy is BaseStrategy {
             trades
         );
 
-        maturity = minMarketMaturity;
     }
 
     /*
@@ -639,6 +640,8 @@ contract Strategy is BaseStrategy {
         override
         returns (uint256 _liquidatedAmount, uint256 _loss)
     {
+        // Re-set the toggle to false
+        toggleRealizeLosses = false;
         _checkPositionsAndWithdraw();
         
         uint256 wantBalance = balanceOfWant();
@@ -751,8 +754,6 @@ contract Strategy is BaseStrategy {
             _liquidatedAmount = totalAssets;
         }
 
-        // Re-set the toggle to false
-        toggleRealizeLosses = false;
     }
 
     /*
@@ -963,12 +964,12 @@ contract Strategy is BaseStrategy {
             (int256 cashBalance,,) = nProxy.getAccountBalance(currencyID, address(this));
 
             if(cashBalance > 0) {
+                maturity = 0;
                 nProxy.withdraw(currencyID, uint88(cashBalance), true);
                 if (currencyID == WETH) {
                     // Only necessary for wETH/ ETH pair
                     weth.deposit{value: address(this).balance}();
                 }
-                maturity = 0;
             }
         }
 

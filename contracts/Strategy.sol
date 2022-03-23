@@ -46,7 +46,7 @@ contract Strategy is BaseStrategy {
     // Minimum maturity for the market to enter
     uint256 private minTimeToMaturity;
     // Minimum amount of want to act on
-    uint16 public minAmountWant;
+    uint256 public minAmountWant;
     // Initialize WETH interface
     IWETH public constant weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     // Constant necessary to accept ERC1155 fcash tokens (for migration purposes) 
@@ -345,7 +345,7 @@ contract Strategy is BaseStrategy {
      *  Setter function for the minimum amount of want to invest, accesible only to strategist, governance, guardian and management
      * @param _newMinAmount, new minimum amount of want to invest
      */
-    function setMinAmountWant(uint16 _newMinAmount) external onlyVaultManagers {
+    function setMinAmountWant(uint256 _newMinAmount) external onlyVaultManagers {
         minAmountWant = _newMinAmount;
     }
 

@@ -93,7 +93,7 @@ token_addresses = {
         # 'WBTC', # WBTC
         # "WETH",  # WETH
         'DAI', # DAI
-        'USDC', # USDC
+        # 'USDC', # USDC
     ],
     scope="session",
     autouse=True,
@@ -110,7 +110,7 @@ currency_IDs = {
 
 thresholds = {
     "WETH": (1000e18, -500e8),
-    "DAI": (50e24, -50e14),
+    "DAI": (15e24, -15e14),
     "WBTC": (60e8, -60e8),
     "USDC": (50e12, -50e14),
 }
@@ -228,8 +228,8 @@ def live_vault(registry, token):
 
 @pytest.fixture
 def strategy(strategist, keeper, vault, rewards, Strategy, gov, notional_proxy, currencyID, ONEk_WANT):
-    # strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, ONEk_WANT)
-    strategy = Contract("0x0EeeBD67CfaE6a9E78433B301fc44C13Ba205bf6")
+    strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, ONEk_WANT)
+    # strategy = Contract("0x0EeeBD67CfaE6a9E78433B301fc44C13Ba205bf6")
     
     strategy_address = strategy.cloneStrategy(
         vault,

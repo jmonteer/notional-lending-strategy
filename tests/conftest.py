@@ -1,6 +1,6 @@
 import pytest
 from brownie import config
-from brownie import Contract
+from brownie import Contract, interface
 
 # Function scoped isolation fixture to enable xdist.
 # Snapshots the chain before each test and reverts after test completion.
@@ -17,6 +17,10 @@ def gov(accounts):
 @pytest.fixture
 def strat_ms(accounts):
     yield accounts.at("0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7", force=True)
+
+@pytest.fixture
+def notional_proxy():
+    yield "0x1344A36A1B56144C3Bc62E7757377D288fDE0369"
 
 
 @pytest.fixture
@@ -41,12 +45,36 @@ def management(accounts):
 
 @pytest.fixture
 def strategist(accounts):
-    yield accounts[4]
+    # yield accounts[4]
+    yield accounts.at("0xD11aa2E3a000275eD12B87515C9AC0D67B32E7B9", force=True)
 
 
 @pytest.fixture
 def keeper(accounts):
     yield accounts[5]
+
+@pytest.fixture
+def n_proxy():
+    yield Contract.from_explorer("0x1344A36A1B56144C3Bc62E7757377D288fDE0369")
+
+@pytest.fixture
+def n_proxy_views(n_proxy):
+    views_contract = Contract(n_proxy.VIEWS())
+    yield Contract.from_abi("VIEWS", n_proxy.address, views_contract.abi)
+
+@pytest.fixture
+def n_proxy_batch(n_proxy):
+    batch_contract = Contract(n_proxy.BATCH_ACTION())
+    yield Contract.from_abi("BATCH", n_proxy.address, batch_contract.abi)
+
+@pytest.fixture
+def n_proxy_account(n_proxy):
+    account_contract = Contract(n_proxy.ACCOUNT_ACTION())
+    yield Contract.from_abi("ACCOUNT", n_proxy.address, account_contract.abi)
+
+@pytest.fixture
+def n_proxy_implementation(n_proxy):
+    yield interface.NotionalProxy(n_proxy.address)
 
 
 token_addresses = {
@@ -63,11 +91,8 @@ token_addresses = {
 @pytest.fixture(
     params=[
         # 'WBTC', # WBTC
-        # "YFI",  # YFI
         # "WETH",  # WETH
-        # 'LINK', # LINK
-        # 'USDT', # USDT
-        # 'DAI', # DAI
+        'DAI', # DAI
         # 'USDC', # USDC
     ],
     scope="session",
@@ -75,6 +100,35 @@ token_addresses = {
 )
 def token(request):
     yield Contract(token_addresses[request.param])
+
+currency_IDs = {
+    "WETH": 1,
+    "DAI": 2,  # DAI
+    "USDC": 3,  # USDC
+    "WBTC": 4
+}
+
+thresholds = {
+    "WETH": (1000e18, -500e8),
+    "DAI": (15e24, -15e14),
+    "WBTC": (60e8, -60e8),
+    "USDC": (50e12, -50e14),
+}
+
+live_vaults = {
+    "WETH": "0xa258C4606Ca8206D8aA700cE2143D7db854D168c",
+    "DAI": "0xdA816459F1AB5631232FE5e97a05BBBb94970c95",
+    "WBTC": "0xA696a63cc78DfFa1a63E9E50587C197387FF6C7E",
+    "USDC": "0xa354F35829Ae975e850e23e9615b11Da1B3dC4DE",
+}
+
+@pytest.fixture
+def balance_threshold(token):
+    yield thresholds[token.symbol()]
+
+@pytest.fixture
+def currencyID(token):
+    yield currency_IDs[token.symbol()]
 
 
 whale_addresses = {
@@ -106,8 +160,8 @@ token_prices = {
 
 @pytest.fixture(autouse=True)
 def amount(token, token_whale, user):
-    # this will get the number of tokens (around $1m worth of token)
-    amillion = round(1_000_000 / token_prices.symbol())
+    # this will get the number of tokens (around $100k worth of token)
+    amillion = round(1_000_000 / token_prices[token.symbol()])
     amount = amillion * 10 ** token.decimals()
     # In order to get some funds for the token you are about to use,
     # it impersonate a whale address
@@ -116,6 +170,15 @@ def amount(token, token_whale, user):
     token.transfer(user, amount, {"from": token_whale})
     yield amount
 
+@pytest.fixture()
+def ONEk_WANT(token):
+    onek = round(1_000 / token_prices[token.symbol()])
+    amount = onek * 10 ** token.decimals()
+    yield amount
+
+@pytest.fixture(autouse=True)
+def million_in_token(token):
+    yield round(1e6 / token_prices[token.symbol()]) * 10 ** token.decimals()
 
 @pytest.fixture
 def weth():
@@ -131,12 +194,25 @@ def weth_amount(user, weth):
 
 
 @pytest.fixture(scope="function", autouse=True)
-def vault(pm, gov, rewards, guardian, management, token):
+def vault(pm, gov, rewards, guardian, management, token, currencyID):
+    
+
+    # vault = Contract(live_vaults[token.symbol()])
+
+    # if (currencyID == 4) :
+    #     strat_reduce = Contract("0xb85413f6d07454828eAc7E62df7d847316475178")
+    #     new_dr = int(vault.strategies(strat_reduce)["debtRatio"] / 2)
+    #     vault.updateStrategyDebtRatio(strat_reduce, new_dr, {"from":vault.governance()})
+    #     strat_reduce.harvest({"from": vault.governance()})
+    # elif currencyID == 1:
     Vault = pm(config["dependencies"][0]).Vault
     vault = guardian.deploy(Vault)
     vault.initialize(token, gov, rewards, "", "", guardian, management)
     vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
     vault.setManagement(management, {"from": gov})
+    vault.setManagementFee(0, {"from": gov})
+    vault.setPerformanceFee(1_000, {"from": gov})
+
     yield vault
 
 
@@ -151,38 +227,70 @@ def live_vault(registry, token):
 
 
 @pytest.fixture
-def strategy(strategist, keeper, vault, Strategy, gov):
-    strategy = strategist.deploy(Strategy, vault)
-    strategy.setKeeper(keeper)
-    vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
+def strategy(strategist, keeper, vault, rewards, Strategy, gov, notional_proxy, currencyID, ONEk_WANT):
+    strategy = strategist.deploy(Strategy, vault, notional_proxy, currencyID, ONEk_WANT)
+    # strategy = Contract("0x0EeeBD67CfaE6a9E78433B301fc44C13Ba205bf6")
+    
+    strategy_address = strategy.cloneStrategy(
+        vault,
+        strategist,
+        rewards,
+        keeper,
+        notional_proxy,
+        currencyID,
+        ONEk_WANT,
+        {"from": vault.governance()}
+    ).return_value
+    strategy = Strategy.at(strategy_address)
+
+    # strategy.setKeeper(keeper)
+    debtRatio = 10000 if vault.debtRatio() <= 9_500 else 10_000 - vault.debtRatio()
+    if currencyID == 1:
+        debtRatio = int(debtRatio / 10)
+    vault.addStrategy(strategy, debtRatio, 0, 2 ** 256 - 1, 1000, {"from": gov})
+    # strategy.setMinTimeToMaturity(1 * 30 * 24 * 60 * 60, {"from": vault.governance()})
     yield strategy
 
 
 @pytest.fixture
-def cloned_strategy(Strategy, vault, strategy, strategist, gov):
-    # TODO: customize clone method and arguments
-    # TODO: use correct contract name (i.e. replace Strategy)
+def cloned_strategy(Strategy, vault, strategy, strategist, rewards, keeper, notional_proxy,
+ currencyID, gov, ONEk_WANT):
     cloned_strategy = strategy.cloneStrategy(
-        strategist, {"from": strategist}
+        vault,
+        strategist,
+        rewards,
+        keeper,
+        notional_proxy,
+        currencyID,
+        ONEk_WANT,
+        {"from": strategist}
     ).return_value
     cloned_strategy = Strategy.at(cloned_strategy)
-    vault.revokeStrategy(strategy)
-    vault.addStrategy(cloned_strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
-    yield
+    vault.revokeStrategy(strategy, {"from": gov})
+    debtRatio = 500 if vault.debtRatio() <= 9_500 else 10_000 - vault.debtRatio()
+    vault.addStrategy(cloned_strategy, debtRatio, 0, 2 ** 256 - 1, 1_000, {"from": gov})
+    yield cloned_strategy
 
 
 @pytest.fixture(autouse=True)
-def withdraw_no_losses(vault, token, amount, user):
+def withdraw_no_losses(vault, token, amount, user, currencyID, RELATIVE_APPROX):
     yield
-    if vault.totalSupply() != 0:
+    if vault.balanceOf(user) != 0:
+        vault.withdraw({"from": user})
+        # check that we dont have previously realised losses
+        # NOTE: this assumes deposit is `amount`
+        if currencyID > 0:
+            assert token.balanceOf(user) >= amount
+        else:
+            assert pytest.approx(token.balanceOf(user), rel=RELATIVE_APPROX) == amount
         return
-    vault.withdraw({"from": user})
-
-    # check that we dont have previously realised losses
-    # NOTE: this assumes deposit is `amount`
-    assert token.balanceOf(user) >= amount
 
 
 @pytest.fixture(scope="session", autouse=True)
 def RELATIVE_APPROX():
-    yield 1e-5
+    yield 1e-3
+
+@pytest.fixture(scope="session", autouse=True)
+def MAX_BPS():
+    yield 1e4
+

@@ -8,3 +8,7 @@ reports/
 
 # Node/npm
 node_modules/
+
+contracts/encodeTrade.sol
+
+*.xlsx

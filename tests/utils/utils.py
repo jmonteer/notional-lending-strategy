@@ -32,3 +32,10 @@ def from_units(token, amount):
 def sleep(seconds=6 * 60 * 60):
     chain.sleep(seconds)
     chain.mine(1)
+
+def get_min_market_index(strategy, currencyID, n_proxy_views):
+    min_time = strategy.getMinTimeToMaturity()
+    active_markets = n_proxy_views.getActiveMarkets(currencyID)
+    for i, am in enumerate(active_markets):
+        if am[1] - chain.time() >= min_time:
+            return i+1

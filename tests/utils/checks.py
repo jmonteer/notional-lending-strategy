@@ -21,12 +21,12 @@ def check_revoked_strategy(vault, strategy):
     return
 
 
-def check_harvest_profit(tx, profit_amount):
-    assert tx.events["Harvested"]["gain"] == profit_amount
+def check_harvest_profit(tx, profit_amount, RELATIVE_APPROX):
+    assert pytest.approx(tx.events["Harvested"]["profit"], rel=RELATIVE_APPROX) == profit_amount
 
 
-def check_harvest_loss(tx, loss_amount):
-    assert tx.events["Harvested"]["loss"] == loss_amount
+def check_harvest_loss(tx, loss_amount, RELATIVE_APPROX):
+    assert pytest.approx(tx.events["Harvested"]["loss"], rel=RELATIVE_APPROX) == loss_amount
 
 
 def check_accounting(vault, strategy, totalGain, totalLoss, totalDebt):
@@ -36,3 +36,8 @@ def check_accounting(vault, strategy, totalGain, totalLoss, totalDebt):
     assert status["totalLoss"] == totalLoss
     assert status["totalDebt"] == totalDebt
     return
+
+def check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user):
+    active_markets = n_proxy_views.getActiveMarkets(currencyID)
+    if active_markets[0][2] == 0:
+        n_proxy_implementation.initializeMarkets(currencyID, 0, {"from": user})

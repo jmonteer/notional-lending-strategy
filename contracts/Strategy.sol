@@ -67,7 +67,7 @@ contract Strategy is BaseStrategy {
     uint8 private constant TRADE_TYPE_LEND = 0;
     uint8 private constant TRADE_TYPE_BORROW = 1;
     // Credit available threshold to consider harvesting the strategy
-    uint256 public MIN_AMOUNT_HARVEST = 0;
+    uint256 private MIN_AMOUNT_HARVEST = 0;
     // Current maturity invested
     uint256 private maturity;
 
@@ -263,6 +263,15 @@ contract Strategy is BaseStrategy {
      */
     function getMaturity() external view returns(uint256) {
         return maturity;
+    }
+
+    /*
+     * @notice
+     *  Getter function for the current minimum amount necessary to trigger harvest
+     * @return uint256, current minimum amount to harvest
+     */
+    function getMinAmountHarvest() external view returns(uint256) {
+        return MIN_AMOUNT_HARVEST;
     }
 
     /*
@@ -490,7 +499,7 @@ contract Strategy is BaseStrategy {
         }
         // Amount to trade is the available want balance, changed to 8 decimals and
         // scaled down by FCASH_SCALING to ensure it does not revert
-        int88 amountTrade = int88(
+        int88 amountTrade = _toInt88(
                 availableWantBalance.mul(MAX_BPS).div(DECIMALS_DIFFERENCE).mul(FCASH_SCALING).div(MAX_BPS)
             );
         // NOTE: May revert if the availableWantBalance is too high and interest rates get to < 0
@@ -535,7 +544,7 @@ contract Strategy is BaseStrategy {
     function getTradeFrom(uint8 _tradeType, uint256 _marketIndex, uint256 _amount) internal returns (bytes32 result) {
         uint8 tradeType = SafeCast.toUint8(_tradeType);
         uint8 marketIndex = SafeCast.toUint8(_marketIndex);
-        uint88 fCashAmount = uint88(_amount);
+        uint88 fCashAmount = _toUint88(_amount);
         uint32 minSlippage = SafeCast.toUint32(0);
         uint120 padding = uint120(0);
 
@@ -672,7 +681,7 @@ contract Strategy is BaseStrategy {
         // To liquidate the full required amount we may need to liquidate several differents terms
         // This shouldn't happen in the basic strategy (as we will only lend to the shortest term)
         uint256 remainingAmount = amountToLiquidate;
-        // The following for-loop creates the list of required trades to get the amountRequired
+        // The following if-clause computes the necessary trade to liberate the required funds
         uint256 tradesToExecute = 0;
         if (_accountPortfolio.length == 1) {
             if (remainingAmount > 0) {
@@ -689,19 +698,19 @@ contract Strategy is BaseStrategy {
                 // Retrieve size of position in this market (underlyingInternalNotation)
                 (, int256 underlyingInternalNotation) = nProxy.getCashAmountGivenfCashAmount(
                     currencyID,
-                    int88(-_accountPortfolio[0].notional),
+                    _toInt88(-_accountPortfolio[0].notional),
                     _marketIndex,
                     block.timestamp
                 );
                 // Adjust for decimals (Notional uses 8 decimals regardless of underlying)
                 uint256 underlyingPosition = SafeCast.toUint256(underlyingInternalNotation).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
-                // If we can withdraw what we need from this market, we do and stop iterating over markets
-                // If we can't, we create the trade to withdraw maximum amount and try in the next market / term
+                // If we can withdraw what we need from this market, we do it
+                // If we can't, we create the trade to withdraw maximum amount
                 if(underlyingPosition > remainingAmount) {
                     
                     int256 fCashAmountToTrade = -nProxy.getfCashAmountGivenCashAmount(
                         currencyID, 
-                        int88(remainingAmount.mul(MAX_BPS).div(DECIMALS_DIFFERENCE)) + 1, 
+                        _toInt88(remainingAmount.mul(MAX_BPS).div(DECIMALS_DIFFERENCE)) + 1, 
                         _marketIndex, 
                         block.timestamp
                         );
@@ -715,7 +724,7 @@ contract Strategy is BaseStrategy {
                                             );
                     tradesToExecute++;
                     remainingAmount = 0;
-                    return (_liquidatedAmount, _loss);
+                    
                 } else {
                     trades[0] = getTradeFrom(TRADE_TYPE_BORROW, _marketIndex, SafeCast.toUint256(_accountPortfolio[0].notional));
                     tradesToExecute++;
@@ -723,7 +732,7 @@ contract Strategy is BaseStrategy {
                     maturity = 0;
                 }
             }
-            // Execute previously calculated trades
+            // Execute previously calculated trade
             // We won't deposit anything (we are withdrawing) and we signal that we want the underlying to hit the strategy (instead of remaining in our Notional account)
             executeBalanceActionWithTrades(
                 DepositActionType.None, 
@@ -788,7 +797,7 @@ contract Strategy is BaseStrategy {
             if (_accountPortfolio.length == 1) {
                 _transferMarket(
                     _newStrategy,
-                    uint40(_accountPortfolio[0].maturity), 
+                    _toUint40(_accountPortfolio[0].maturity), 
                     SafeCast.toUint8(_accountPortfolio[0].assetType),
                     SafeCast.toUint256(_accountPortfolio[0].notional)
                     );
@@ -958,7 +967,7 @@ contract Strategy is BaseStrategy {
 
             if(cashBalance > 0) {
                 maturity = 0;
-                nProxy.withdraw(currencyID, uint88(cashBalance), true);
+                nProxy.withdraw(currencyID, _toUint88(cashBalance), true);
                 if (currencyID == WETH) {
                     // Only necessary for wETH/ ETH pair
                     weth.deposit{value: address(this).balance}();
@@ -970,14 +979,14 @@ contract Strategy is BaseStrategy {
 
     /*
      * @notice
-     *  Loop through the strategy's positions and convert the fcash to current valuation in 'want', including the
+     * Convert the fcash in the strategy's position to current valuation in 'want', including the
      * fees incurred by leaving the position early. Represents the NPV of the position today.
      * @return uint256 _totalWantValue, the total amount of 'want' tokens of the strategy's positions
      */
     function _getTotalValueFromPortfolio() internal view returns(uint256 _totalWantValue) {
         PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
         MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
-        // Iterate over all active markets and sum value of each position 
+        // Iterate over all active markets and sum value of the position 
         if (_accountPortfolio.length == 1) {
             for(uint256 j = 0; j < _activeMarkets.length; j++){
                 if(_accountPortfolio[0].maturity <= block.timestamp) {
@@ -989,7 +998,7 @@ contract Strategy is BaseStrategy {
                 if(_accountPortfolio[0].maturity == _activeMarkets[j].maturity) {
                     (, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(
                         currencyID,
-                        int88(-_accountPortfolio[0].notional),
+                        _toInt88(-_accountPortfolio[0].notional),
                         j+1,
                         block.timestamp
                     );
@@ -1118,5 +1127,62 @@ contract Strategy is BaseStrategy {
         );
 
     }
+
+    /*
+     * @notice
+     * Internal function to safely cast from uint256 to int88
+     * @param value, value to convert
+     * @return int88, converted value
+     */
+    function _toInt88(uint256 value) internal pure returns(int88) {
+        require(value < 2**87);
+        return int88(value);
+    }
+
+    /*
+     * @notice
+     * Internal function to safely cast from int256 to int88
+     * @param value, value to convert
+     * @return int88, converted value
+     */
+    function _toInt88(int256 value) internal pure returns(int88) {
+        require(value >= -2**87 && value < 2**87);
+        return int88(value);
+    }
+
+    /*
+     * @notice
+     * Internal function to safely cast from uint256 to uint88
+     * @param value, value to convert
+     * @return uint88, converted value
+     */
+    function _toUint88(uint256 value) internal pure returns(uint88) {
+        require(value < 2**88);
+        return uint88(value);
+    }
+
+    /*
+     * @notice
+     * Internal function to safely cast from int256 to uint88
+     * @param value, value to convert
+     * @return uint88, converted value
+     */
+    function _toUint88(int256 value) internal pure returns(uint88) {
+        require(value > 0 && value < 2**88);
+        return uint88(value);
+    }
+
+    /*
+     * @notice
+     * Internal function to safely cast from uint256 to uint40
+     * @param value, value to convert
+     * @return uint40, converted value
+     */
+    function _toUint40(uint256 value) internal pure returns(uint40) {
+        require(value < 2**40);
+        return uint40(value);
+    }
+
+    
 
 }

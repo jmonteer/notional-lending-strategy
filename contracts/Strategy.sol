@@ -15,6 +15,7 @@ import "@yearnvaults/contracts/BaseStrategy.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
 import "@openzeppelin/contracts/math/Math.sol";
+import "@openzeppelin/contracts/utils/SafeCast.sol";
 
 // Import the necessary structs to send/ receive data from Notional
 import {
@@ -143,7 +144,7 @@ contract Strategy is BaseStrategy {
         nProxy = _nProxy;
 
         (Token memory assetToken, Token memory underlying) = _nProxy.getCurrency(_currencyID);
-        DECIMALS_DIFFERENCE = uint256(underlying.decimals).mul(MAX_BPS).div(uint256(assetToken.decimals));
+        DECIMALS_DIFFERENCE = SafeCast.toUint256(underlying.decimals).mul(MAX_BPS).div(SafeCast.toUint256(assetToken.decimals));
         
         // Assign the minimum credit available to consider for harvesting
         MIN_AMOUNT_HARVEST = _minAmountHarvest;
@@ -511,7 +512,7 @@ contract Strategy is BaseStrategy {
         trades[0] = getTradeFrom(
             TRADE_TYPE_LEND, 
             minMarketIndex, 
-            uint256(fCashAmountToTrade)
+            SafeCast.toUint256(fCashAmountToTrade)
             );
 
         executeBalanceActionWithTrades(
@@ -532,10 +533,10 @@ contract Strategy is BaseStrategy {
      * @return bytes32 result, the encoded trade ready to be used in Notional's 'BatchTradeAction'
      */
     function getTradeFrom(uint8 _tradeType, uint256 _marketIndex, uint256 _amount) internal returns (bytes32 result) {
-        uint8 tradeType = uint8(_tradeType);
-        uint8 marketIndex = uint8(_marketIndex);
+        uint8 tradeType = SafeCast.toUint8(_tradeType);
+        uint8 marketIndex = SafeCast.toUint8(_marketIndex);
         uint88 fCashAmount = uint88(_amount);
-        uint32 minSlippage = uint32(0);
+        uint32 minSlippage = SafeCast.toUint32(0);
         uint120 padding = uint120(0);
 
         // We create result of trade in a bitmap packed encoded bytes32
@@ -693,7 +694,7 @@ contract Strategy is BaseStrategy {
                     block.timestamp
                 );
                 // Adjust for decimals (Notional uses 8 decimals regardless of underlying)
-                uint256 underlyingPosition = uint256(underlyingInternalNotation).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
+                uint256 underlyingPosition = SafeCast.toUint256(underlyingInternalNotation).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
                 // If we can withdraw what we need from this market, we do and stop iterating over markets
                 // If we can't, we create the trade to withdraw maximum amount and try in the next market / term
                 if(underlyingPosition > remainingAmount) {
@@ -710,13 +711,13 @@ contract Strategy is BaseStrategy {
                     }
 
                     trades[0] = getTradeFrom(TRADE_TYPE_BORROW, _marketIndex, 
-                                            uint256(fCashAmountToTrade)
+                                            SafeCast.toUint256(fCashAmountToTrade)
                                             );
                     tradesToExecute++;
                     remainingAmount = 0;
                     return (_liquidatedAmount, _loss);
                 } else {
-                    trades[0] = getTradeFrom(TRADE_TYPE_BORROW, _marketIndex, uint256(_accountPortfolio[0].notional));
+                    trades[0] = getTradeFrom(TRADE_TYPE_BORROW, _marketIndex, SafeCast.toUint256(_accountPortfolio[0].notional));
                     tradesToExecute++;
                     remainingAmount -= underlyingPosition;
                     maturity = 0;
@@ -766,7 +767,7 @@ contract Strategy is BaseStrategy {
                 );
             amountLiquidated += _liquidatefCashAmount(
                 _marketIndex,
-                uint256(_accountPortfolio[0].notional)
+                SafeCast.toUint256(_accountPortfolio[0].notional)
                 );
         }
         return amountLiquidated.add(wantBalance);
@@ -788,8 +789,8 @@ contract Strategy is BaseStrategy {
                 _transferMarket(
                     _newStrategy,
                     uint40(_accountPortfolio[0].maturity), 
-                    uint8(_accountPortfolio[0].assetType),
-                    uint256(_accountPortfolio[0].notional)
+                    SafeCast.toUint8(_accountPortfolio[0].assetType),
+                    SafeCast.toUint256(_accountPortfolio[0].notional)
                     );
             }
         }
@@ -909,7 +910,7 @@ contract Strategy is BaseStrategy {
             ETHRate memory ethRate,
         ) = nProxy.getCurrencyAndRates(currencyID);
             
-        return _amount.mul(uint256(underlyingToken.decimals)).div(uint256(ethRate.rate));
+        return _amount.mul(SafeCast.toUint256(underlyingToken.decimals)).div(SafeCast.toUint256(ethRate.rate));
     }
 
     /*
@@ -929,7 +930,7 @@ contract Strategy is BaseStrategy {
         // nextSettleTime in the account context and comparing it against current block time
         AccountContext memory _accountContext = nProxy.getAccountContext(address(this));
         // If there is something to settle, do it and withdraw to the strategy's balance
-        if (uint256(_accountContext.nextSettleTime) < block.timestamp && uint256(_accountContext.nextSettleTime) > 0) {
+        if (SafeCast.toUint256(_accountContext.nextSettleTime) < block.timestamp && _accountContext.nextSettleTime > 0) {
             return true;
         }
 
@@ -950,7 +951,7 @@ contract Strategy is BaseStrategy {
         AccountContext memory _accountContext = nProxy.getAccountContext(address(this));
 
         // If there is something to settle, do it and withdraw to the strategy's balance
-        if (uint256(_accountContext.nextSettleTime) < block.timestamp) {
+        if (SafeCast.toUint256(_accountContext.nextSettleTime) < block.timestamp) {
             nProxy.settleAccount(address(this));
 
             (int256 cashBalance,,) = nProxy.getAccountBalance(currencyID, address(this));
@@ -982,7 +983,7 @@ contract Strategy is BaseStrategy {
                 if(_accountPortfolio[0].maturity <= block.timestamp) {
                     // Convert the fcash amount of the position to underlying assuming a 1:1 conversion rate
                     // (taking into account decimals difference)
-                    _totalWantValue += uint256(_accountPortfolio[0].notional).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
+                    _totalWantValue += SafeCast.toUint256(_accountPortfolio[0].notional).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
                     break;
                 }
                 if(_accountPortfolio[0].maturity == _activeMarkets[j].maturity) {
@@ -992,7 +993,7 @@ contract Strategy is BaseStrategy {
                         j+1,
                         block.timestamp
                     );
-                    _totalWantValue += uint256(underlyingPosition).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
+                    _totalWantValue += SafeCast.toUint256(underlyingPosition).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
                     break;
                 }
             }
@@ -1044,7 +1045,7 @@ contract Strategy is BaseStrategy {
         MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
         for(uint256 i = 0; i<_activeMarkets.length; i++) {
             if (_activeMarkets[i].maturity.sub(block.timestamp) >= minTimeToMaturity) {
-                return (i+1, uint256(_activeMarkets[i].maturity));
+                return (i+1, _activeMarkets[i].maturity);
             }
         }
     } 
@@ -1108,7 +1109,7 @@ contract Strategy is BaseStrategy {
         }
         
         bytes32[] memory rollTrade = new bytes32[](1);
-        rollTrade[0] = getTradeFrom(TRADE_TYPE_BORROW, _currentIndex, uint256(_accountPortfolio[0].notional));
+        rollTrade[0] = getTradeFrom(TRADE_TYPE_BORROW, _currentIndex, SafeCast.toUint256(_accountPortfolio[0].notional));
         executeBalanceActionWithTrades(
             DepositActionType.None, 
             0,

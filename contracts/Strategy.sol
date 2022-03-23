@@ -233,7 +233,7 @@ contract Strategy is BaseStrategy {
      */
     function sendETHToGovernance() external onlyGovernance {
         (bool sent, bytes memory data) = governance().call{value: address(this).balance}("");
-        require(sent, "Failed to send Ether");
+        require(sent);
     }
 
     /*
@@ -673,22 +673,22 @@ contract Strategy is BaseStrategy {
         uint256 remainingAmount = amountToLiquidate;
         // The following for-loop creates the list of required trades to get the amountRequired
         uint256 tradesToExecute = 0;
-        for(uint256 i; i < _accountPortfolio.length; i++) {
+        if (_accountPortfolio.length == 1) {
             if (remainingAmount > 0) {
                 uint256 _marketIndex = _getMarketIndexForMaturity(
-                    _accountPortfolio[i].maturity
+                    _accountPortfolio[0].maturity
                 );
 
                 // Handle case where there was no success finding an available market
                 if (_marketIndex == 0) {
                     // Break the loop as something happened with the markets
-                    break;
+                    return (_liquidatedAmount, _loss);
                 }
 
                 // Retrieve size of position in this market (underlyingInternalNotation)
                 (, int256 underlyingInternalNotation) = nProxy.getCashAmountGivenfCashAmount(
                     currencyID,
-                    int88(-_accountPortfolio[i].notional),
+                    int88(-_accountPortfolio[0].notional),
                     _marketIndex,
                     block.timestamp
                 );
@@ -706,41 +706,33 @@ contract Strategy is BaseStrategy {
                         );
 
                     if (fCashAmountToTrade <= 0) {
-                        break;
+                        return (_liquidatedAmount, _loss);
                     }
 
-                    trades[i] = getTradeFrom(TRADE_TYPE_BORROW, _marketIndex, 
+                    trades[0] = getTradeFrom(TRADE_TYPE_BORROW, _marketIndex, 
                                             uint256(fCashAmountToTrade)
                                             );
                     tradesToExecute++;
                     remainingAmount = 0;
-                    break;
+                    return (_liquidatedAmount, _loss);
                 } else {
-                    trades[i] = getTradeFrom(TRADE_TYPE_BORROW, _marketIndex, uint256(_accountPortfolio[i].notional));
+                    trades[0] = getTradeFrom(TRADE_TYPE_BORROW, _marketIndex, uint256(_accountPortfolio[0].notional));
                     tradesToExecute++;
                     remainingAmount -= underlyingPosition;
                     maturity = 0;
                 }
             }
+            // Execute previously calculated trades
+            // We won't deposit anything (we are withdrawing) and we signal that we want the underlying to hit the strategy (instead of remaining in our Notional account)
+            executeBalanceActionWithTrades(
+                DepositActionType.None, 
+                0,
+                0,
+                trades
+            );
         }
         // NOTE: if for some reason we reach this with remainingAmount > 0, we will report losses !
         // this makes sense because means we have iterated over all markets and haven't been able to withdraw
-
-        // As we did not know the number of trades we needed to make, we adjust the array to only include
-        // non-empty trades (reverts otherwise)
-        bytes32[] memory final_trades = new bytes32[](tradesToExecute);
-        for (uint256 j=0; j<tradesToExecute; j++) {
-            final_trades[j] = trades[j];
-        }
-
-        // Execute previously calculated trades
-        // We won't deposit anything (we are withdrawing) and we signal that we want the underlying to hit the strategy (instead of remaining in our Notional account)
-        executeBalanceActionWithTrades(
-            DepositActionType.None, 
-            0,
-            0,
-            final_trades
-        );
 
         // Assess result 
         uint256 totalAssets = balanceOfWant();
@@ -768,13 +760,13 @@ contract Strategy is BaseStrategy {
         uint256 wantBalance = balanceOfWant();
         // Loop through active positions and close them
         PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
-        for(uint256 i; i < _accountPortfolio.length; i++) {
+        if (_accountPortfolio.length == 1) {
             uint256 _marketIndex = _getMarketIndexForMaturity(
-                    _accountPortfolio[i].maturity
+                    _accountPortfolio[0].maturity
                 );
             amountLiquidated += _liquidatefCashAmount(
                 _marketIndex,
-                uint256(_accountPortfolio[i].notional)
+                uint256(_accountPortfolio[0].notional)
                 );
         }
         return amountLiquidated.add(wantBalance);
@@ -792,12 +784,12 @@ contract Strategy is BaseStrategy {
             _checkPositionsAndWithdraw();
             PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
 
-            for(uint256 i = 0; i < _accountPortfolio.length; i++) {
+            if (_accountPortfolio.length == 1) {
                 _transferMarket(
                     _newStrategy,
-                    uint40(_accountPortfolio[i].maturity), 
-                    uint8(_accountPortfolio[i].assetType),
-                    uint256(_accountPortfolio[i].notional)
+                    uint40(_accountPortfolio[0].maturity), 
+                    uint8(_accountPortfolio[0].assetType),
+                    uint256(_accountPortfolio[0].notional)
                     );
             }
         }
@@ -985,18 +977,18 @@ contract Strategy is BaseStrategy {
         PortfolioAsset[] memory _accountPortfolio = nProxy.getAccountPortfolio(address(this));
         MarketParameters[] memory _activeMarkets = nProxy.getActiveMarkets(currencyID);
         // Iterate over all active markets and sum value of each position 
-        for(uint256 i = 0; i < _accountPortfolio.length; i++) {
+        if (_accountPortfolio.length == 1) {
             for(uint256 j = 0; j < _activeMarkets.length; j++){
-                if(_accountPortfolio[i].maturity <= block.timestamp) {
+                if(_accountPortfolio[0].maturity <= block.timestamp) {
                     // Convert the fcash amount of the position to underlying assuming a 1:1 conversion rate
                     // (taking into account decimals difference)
-                    _totalWantValue += uint256(_accountPortfolio[i].notional).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
+                    _totalWantValue += uint256(_accountPortfolio[0].notional).mul(DECIMALS_DIFFERENCE).div(MAX_BPS);
                     break;
                 }
-                if(_accountPortfolio[i].maturity == _activeMarkets[j].maturity) {
+                if(_accountPortfolio[0].maturity == _activeMarkets[j].maturity) {
                     (, int256 underlyingPosition) = nProxy.getCashAmountGivenfCashAmount(
                         currencyID,
-                        int88(-_accountPortfolio[i].notional),
+                        int88(-_accountPortfolio[0].notional),
                         j+1,
                         block.timestamp
                     );

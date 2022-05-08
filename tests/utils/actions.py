@@ -27,15 +27,16 @@ def wait_half_until_settlement(next_settlement):
     return
 
 
-def whale_drop_rates(n_proxy_batch, whale, token, n_proxy_views, currencyID, balance_threshold, market_index):
+def whale_drop_rates(n_proxy_batch, whale, token, n_proxy_implementation, currencyID, balance_threshold, market_index):
 
     balance = token.balanceOf(whale)
     if(currencyID == 1):
         balance = accounts.at(whale, force=True).balance()
 
     if (balance > balance_threshold[0]):
-
-        fcash_amount = n_proxy_views.getfCashAmountGivenCashAmount(currencyID, balance_threshold[1],
+        #n_proxy_views does not have this method: --> replaced with n_proxy_implementation
+        #fcash_amount = n_proxy_views.getfCashAmountGivenCashAmount(currencyID, balance_threshold[1],
+        fcash_amount = n_proxy_implementation.getfCashAmountGivenCashAmount(currencyID, balance_threshold[1],
          market_index, 
          chain.time()+5)
         trade = encode_abi_packed(
@@ -49,7 +50,8 @@ def whale_drop_rates(n_proxy_batch, whale, token, n_proxy_views, currencyID, bal
                     {"from": whale,\
                         "value":balance_threshold[0]})
         else:
-            token.approve(n_proxy_views.address, balance_threshold[0], {"from": whale})
+            #n_proxy_views address changed to n_proxy_implementation --> same address
+            token.approve(n_proxy_implementation.address, balance_threshold[0], {"from": whale})
             n_proxy_batch.batchBalanceAndTradeAction(whale, \
             [(2, currencyID, balance_threshold[0], 0, 1, 1,\
                 [trade])], \

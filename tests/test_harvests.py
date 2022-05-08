@@ -18,7 +18,9 @@ def test_profitable_harvest(
 
     amount_invested = vault.creditAvailable({"from":strategy})
 
-    amount_fcash = n_proxy_views.getfCashAmountGivenCashAmount(
+    #n_proxy_views does not have this method: --> replaced with n_proxy_implementation
+    #amount_fcash = n_proxy_views.getfCashAmountGivenCashAmount(
+    amount_fcash = n_proxy_implementation.getfCashAmountGivenCashAmount(
         strategy.currencyID(),
         - amount_invested / strategy.DECIMALS_DIFFERENCE() * MAX_BPS,
         min_market_index,
@@ -32,7 +34,8 @@ def test_profitable_harvest(
 
     assert pytest.approx(account[2][0][3], rel=RELATIVE_APPROX) == amount_fcash
 
-    position_cash = n_proxy_views.getCashAmountGivenfCashAmount(
+    #position_cash = n_proxy_views.getCashAmountGivenfCashAmount(
+    position_cash = n_proxy_implementation.getCashAmountGivenfCashAmount(
         strategy.currencyID(),
         - amount_fcash,
         min_market_index,
@@ -46,7 +49,8 @@ def test_profitable_harvest(
     actions.wait_until_settlement(next_settlement)
     checks.check_active_markets(n_proxy_views, currencyID, n_proxy_implementation, user)
 
-    position_cash = n_proxy_views.getCashAmountGivenfCashAmount(
+    #position_cash = n_proxy_views.getCashAmountGivenfCashAmount(
+    position_cash = n_proxy_implementation.getCashAmountGivenfCashAmount(
         strategy.currencyID(),
         - amount_fcash,
         1,
@@ -99,7 +103,8 @@ def test_profitable_harvest(
     if currencyID == 4:
         assert pytest.approx(tx3.events["Harvested"]["profit"], rel=RELATIVE_APPROX) == account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS
     else:
-        assert tx3.events["Harvested"]["profit"] >= account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS
+        #Why would there not be an approx since account[2][0][3] does not have full 1e18 precision, but is rounded? --> added approx
+        assert pytest.approx(tx3.events["Harvested"]["profit"], rel=RELATIVE_APPROX) == account[2][0][3] * strategy.DECIMALS_DIFFERENCE() / MAX_BPS
     
     chain.sleep(3600 * 6)  # 6 hrs needed for profits to unlock
     chain.mine(1)
@@ -119,14 +124,16 @@ def test_lossy_harvest(
     actions.user_deposit(user, vault, token, amount)
     min_market_index = utils.get_min_market_index(strategy, currencyID, n_proxy_views)
     
-    actions.whale_drop_rates(n_proxy_batch, token_whale, token, n_proxy_views, currencyID, balance_threshold, min_market_index)
+    #n_proxy_view does not have .getfCashAmountGivenCashAmount, so have to give n_proxy_implementation
+    actions.whale_drop_rates(n_proxy_batch, token_whale, token, n_proxy_implementation, currencyID, balance_threshold, min_market_index)
 
     # Harvest 1: Send funds through the strategy
     chain.sleep(1)
 
     amount_invested = vault.creditAvailable({"from":strategy})
     
-    amount_fcash = n_proxy_views.getfCashAmountGivenCashAmount(
+    #amount_fcash = n_proxy_views.getfCashAmountGivenCashAmount(
+    amount_fcash = n_proxy_implementation.getfCashAmountGivenCashAmount(
         strategy.currencyID(),
         - amount_invested / strategy.DECIMALS_DIFFERENCE() * MAX_BPS,
         min_market_index,
@@ -175,7 +182,8 @@ def test_choppy_harvest(
     actions.user_deposit(user, vault, token, amount)
     min_market_index = utils.get_min_market_index(strategy, currencyID, n_proxy_views)
 
-    actions.whale_drop_rates(n_proxy_batch, token_whale, token, n_proxy_views, currencyID, balance_threshold, min_market_index)
+    #n_proxy_view does not have .getfCashAmountGivenCashAmount, so have to give n_proxy_implementation
+    actions.whale_drop_rates(n_proxy_batch, token_whale, token, n_proxy_implementation, currencyID, balance_threshold, min_market_index)
     # assert False
     # Harvest 1: Send funds through the strategy
     chain.sleep(1)
@@ -246,7 +254,8 @@ def test_maturity_harvest(
 
     amount_invested = vault.creditAvailable({"from":strategy})
 
-    amount_fcash = n_proxy_views.getfCashAmountGivenCashAmount(
+    #amount_fcash = n_proxy_views.getfCashAmountGivenCashAmount(
+    amount_fcash = n_proxy_implementation.getfCashAmountGivenCashAmount(
         strategy.currencyID(),
         - amount_invested / strategy.DECIMALS_DIFFERENCE() * MAX_BPS,
         min_market_index,
@@ -263,7 +272,8 @@ def test_maturity_harvest(
 
     assert pytest.approx(account[2][0][3], rel=RELATIVE_APPROX) == amount_fcash
 
-    position_cash = n_proxy_views.getCashAmountGivenfCashAmount(
+    #position_cash = n_proxy_views.getCashAmountGivenfCashAmount(
+    position_cash = n_proxy_implementation.getCashAmountGivenfCashAmount(
         strategy.currencyID(),
         - amount_fcash,
         min_market_index,

@@ -17,7 +17,8 @@ def test_force_migration(
     currencyID,
     n_proxy_views,
     MAX_BPS,
-    ONEk_WANT
+    ONEk_WANT,
+    n_proxy_implementation
 ):
     # Deposit to the vault and harvest
     actions.user_deposit(user, vault, token, amount)
@@ -35,7 +36,9 @@ def test_force_migration(
 
     account = n_proxy_views.getAccount(strategy)
     liquidate_half = int(amount_invested/2) - token.balanceOf(strategy)
-    fCash_to_close = n_proxy_views.getfCashAmountGivenCashAmount(
+    #n_proxy_views does not have this method: --> replaced with n_proxy_implementation
+    #fCash_to_close = n_proxy_views.getfCashAmountGivenCashAmount(
+    fCash_to_close = n_proxy_implementation.getfCashAmountGivenCashAmount(
         strategy.currencyID(),
         -liquidate_half / strategy.DECIMALS_DIFFERENCE() * MAX_BPS,
         min_market_index,

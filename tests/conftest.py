@@ -38,7 +38,7 @@ def guardian(accounts):
     yield accounts[2]
 
 
-@pytest.fixture
+@pytest.fixture 
 def management(accounts):
     yield accounts[3]
 
@@ -90,10 +90,10 @@ token_addresses = {
 # TODO: uncomment those tokens you want to test as want
 @pytest.fixture(
     params=[
-        # 'WBTC', # WBTC
-        # "WETH",  # WETH
+        #'WBTC', # WBTC
+        #'WETH',  # WETH
         'DAI', # DAI
-        # 'USDC', # USDC
+        #'USDC', # USDC
     ],
     scope="session",
     autouse=True,
